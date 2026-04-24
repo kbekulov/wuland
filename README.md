@@ -22,6 +22,18 @@ Build the client:
 npm run build
 ```
 
+Preview the built client locally:
+
+```bash
+npm run preview
+```
+
+Update the branch-based GitHub Pages files at the repository root:
+
+```bash
+npm run build:pages-root
+```
+
 Run TypeScript checks across workspaces:
 
 ```bash
@@ -37,6 +49,8 @@ npm run typecheck
 ## Phase Roadmap
 
 Phase 1 is single-player only and stores save data in browser `localStorage`.
+
+The production build is deployed to GitHub Pages at `https://wuland.bekulov.com`. The repository includes a GitHub Actions Pages workflow and also keeps root-level built assets for the current branch-based Pages configuration.
 
 Phase 2 will add the multiplayer server and networking layer.
 

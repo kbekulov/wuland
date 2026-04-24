@@ -16,6 +16,7 @@
     "preview:client": "npm --workspace client run preview",
     "build": "npm run build:client",
     "build:client": "npm --workspace client run build",
+    "build:pages-root": "npm run build && node scripts/sync-pages-root.mjs",
     "typecheck": "npm --workspaces run typecheck"
   },
   "overrides": {

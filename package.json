@@ -12,6 +12,8 @@
   "scripts": {
     "dev": "npm run dev:client",
     "dev:client": "npm --workspace client run dev",
+    "preview": "npm run preview:client",
+    "preview:client": "npm --workspace client run preview",
     "build": "npm run build:client",
     "build:client": "npm --workspace client run build",
     "typecheck": "npm --workspaces run typecheck"

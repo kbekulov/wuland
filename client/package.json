@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit"
   },

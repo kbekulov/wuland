@@ -1,0 +1,19 @@
+{
+  "name": "@wuland/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wuland/shared": "0.1.0",
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "rollup": "npm:@rollup/wasm-node@^4.60.2",
+    "vite": "^7.1.12"
+  }
+}

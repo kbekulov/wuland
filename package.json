@@ -1,0 +1,26 @@
+{
+  "name": "wuland",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WULAND Phase 1 browser-playable RPG prototype.",
+  "type": "module",
+  "workspaces": [
+    "client",
+    "shared",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev:client",
+    "dev:client": "npm --workspace client run dev",
+    "build": "npm run build:client",
+    "build:client": "npm --workspace client run build",
+    "typecheck": "npm --workspaces run typecheck"
+  },
+  "overrides": {
+    "rollup": "npm:@rollup/wasm-node@^4.60.2"
+  },
+  "devDependencies": {
+    "rollup": "npm:@rollup/wasm-node@^4.60.2",
+    "typescript": "^5.9.3"
+  }
+}

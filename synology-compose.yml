@@ -13,8 +13,7 @@ services:
       ALLOWED_ORIGINS: "https://wuland.bekulov.com"
       OFFLINE_PLAYER_TTL_HOURS: 168
     volumes:
-      # If your NAS volume is not /volume1, change this path before uploading.
-      - /volume1/docker/wuland-data:/app/server/data
+      - wuland-player-data:/app/server/data
     healthcheck:
       test:
         [
@@ -34,3 +33,6 @@ services:
       - wuland-server
     # Replace PASTE_CLOUDFLARE_TUNNEL_TOKEN_HERE before uploading this file.
     command: tunnel --no-autoupdate run --token PASTE_CLOUDFLARE_TUNNEL_TOKEN_HERE
+
+volumes:
+  wuland-player-data:

@@ -30,13 +30,7 @@ PASTE_CLOUDFLARE_TUNNEL_TOKEN_HERE
 
 with your Cloudflare Tunnel token.
 
-6. If your NAS main storage is not `/volume1`, change this path:
-
-```yaml
-/volume1/docker/wuland-data:/app/server/data
-```
-
-7. Upload `synology-compose.yml` in Synology Container Manager.
+6. Upload `synology-compose.yml` in Synology Container Manager.
 
 This option does not require copying the whole project to the NAS. The NAS pulls the already-built game server image from GitHub Container Registry.
 
@@ -236,9 +230,9 @@ Directly exposing NAS services is riskier. Cloudflare Tunnel is the easier and s
 Sleeping/offline player data is stored on the NAS at:
 
 ```txt
-/volume1/docker/wuland/server/data/wuland-players.json
+the Docker volume named wuland-player-data
 ```
 
-This survives container rebuilds and restarts because `server/data` is mounted into the container.
+This survives container rebuilds and restarts because `wuland-player-data` is mounted into the container at `/app/server/data`.
 
 JSON persistence is prototype-only. A serious public production version should use accounts/authentication and database persistence such as SQLite, Redis, Postgres, or another managed database.

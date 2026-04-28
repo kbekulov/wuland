@@ -627,6 +627,27 @@ label span,
   font-weight: 800;
 }
 
+.hud-active-item {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #dff7f1;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.hud-active-item strong {
+  color: #fff8e7;
+}
+
+.hud-active-item span:last-child {
+  min-height: 15px;
+  color: #fff3bf;
+}
+
 .hud-network {
   display: flex;
   align-items: center;
@@ -640,6 +661,92 @@ label span,
   font-size: 12px;
   font-weight: 800;
   line-height: 1.25;
+}
+
+.hotbar-panel {
+  position: absolute;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  width: min(640px, calc(100vw - 24px));
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+
+.hotbar-slots {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(10, 22, 23, 0.86);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  padding: 8px;
+}
+
+.hotbar-slot {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  min-width: 0;
+  min-height: 66px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff8e7;
+  padding: 8px 4px 5px;
+  touch-action: none;
+}
+
+.hotbar-slot.selected {
+  border-color: #fff3bf;
+  background: rgba(255, 243, 191, 0.18);
+  box-shadow: 0 0 0 2px rgba(255, 243, 191, 0.22);
+}
+
+.hotbar-slot strong {
+  min-height: 18px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.hotbar-slot small {
+  max-width: 100%;
+  color: #cfe7e0;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.05;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hotbar-number,
+.hotbar-count {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.hotbar-number {
+  left: 4px;
+  top: 4px;
+  width: 16px;
+  height: 16px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #abd8d0;
+}
+
+.hotbar-count {
+  right: 4px;
+  bottom: 4px;
+  min-width: 17px;
+  height: 17px;
+  background: #fff3bf;
+  color: #172224;
 }
 
 .status-dot {
@@ -835,12 +942,13 @@ body[data-touch-controls] .mobile-controls {
   width: min(220px, 44vw);
 }
 
-.mobile-actions [data-mobile-action="basic"] {
+.mobile-actions [data-mobile-action="attack"] {
   background: rgba(86, 196, 168, 0.88);
   color: #08211e;
 }
 
-.mobile-actions [data-mobile-action="special"] {
+.mobile-actions [data-mobile-action="use"],
+.mobile-actions [data-mobile-action="pickup"] {
   background: rgba(116, 192, 252, 0.88);
   color: #071b2c;
 }
@@ -880,6 +988,7 @@ body[data-touch-controls] .mobile-controls {
 
   .hud-class,
   .hud-network,
+  .hud-active-item,
   .hud-hint,
   .hud-combat,
   .hud-counts {
@@ -912,6 +1021,10 @@ body[data-touch-controls] .mobile-controls {
   .mobile-controls {
     display: flex;
   }
+
+  .hotbar-panel {
+    bottom: max(92px, env(safe-area-inset-bottom));
+  }
 }
 
 @media (orientation: portrait) and (max-width: 760px) {
@@ -927,6 +1040,25 @@ body[data-touch-controls] .mobile-controls {
   .mobile-actions {
     grid-template-columns: 1fr;
     width: 112px;
+  }
+
+  .hotbar-panel {
+    bottom: max(116px, env(safe-area-inset-bottom));
+    width: min(520px, calc(100vw - 16px));
+  }
+
+  .hotbar-slots {
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .hotbar-slot {
+    min-height: 50px;
+    padding: 6px 2px 4px;
+  }
+
+  .hotbar-slot small {
+    display: none;
   }
 
   .mobile-actions button,

@@ -1,6 +1,6 @@
 # WULAND
 
-WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 3 keeps the character creation, local profile/progress save, multiplayer village movement, sleeping offline players, building visits, and collisions, then adds simple server-authoritative co-op combat.
+WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 5 keeps character creation, local profile/progress save, multiplayer village movement, sleeping offline players, mobile support, building visits, collisions, enemies, and server-authoritative combat, then replaces class-specific abilities with shared weapons and a 9-slot hotbar inventory.
 
 ## Local Development
 
@@ -61,11 +61,28 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 
 ## Combat Controls
 
-- `J`: basic attack in your facing direction or against the selected enemy.
-- Left click an enemy: select it and basic attack if the server says it is in range.
-- `K` or `Space`: class special ability.
+- `1` through `9`: select a hotbar slot.
+- `Space`: attack with the selected weapon.
+- `E`: use the selected consumable.
+- `F`: pick up a nearby dropped item.
+- Click or tap an enemy: select it as your weapon target.
+- Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop it on the map.
 
-Combat is intentionally simple prototype combat. The server owns player HP, enemy HP, ability cooldowns, enemy movement, damage, defeats, and respawns. The browser only sends movement and attack requests.
+Combat is intentionally simple prototype combat. The server owns player HP, enemy HP, inventories, selected hotbar slots, dropped items, enemy movement, damage, defeats, and respawns. The browser only sends movement, inventory, pickup, and attack requests.
+
+Class abilities, special skills, special cooldowns, and passive combat traits were replaced by shared weapons so every class has equal combat access.
+
+Starter inventory:
+
+- Slot 1: Rock
+- Slot 2: Sword
+- Slot 3: Magic Wand
+
+Weapons:
+
+- Sword: short-range melee arc with moderate damage.
+- Magic Wand: longer-range magic projectile with medium damage.
+- Rock: thrown blunt projectile with lower damage.
 
 For temporary live-world cleanup, the server also supports:
 
@@ -74,13 +91,15 @@ For temporary live-world cleanup, the server also supports:
 
 ## Classes
 
-- Developer: DPS / worker. `Code Strike`, `Implement Feature`, and bonus damage to Bugs, Task Slimes, and Broken Bots.
-- Senior Developer: tank / rules guardian. `Standards Strike`, `Rule Shield`, and reduced incoming damage.
-- Business Analyst: tactician / marker. `User Story Shot`, `Break Down Scope`, and marks that help Developers hit harder.
-- Senior Business Analyst: senior tactician / coordinator. `Clarify Shot`, `Process Alignment`, and nearby ally range support.
-- Product Owner: protector / quest giver. `Priority Command`, `Take the Hit`, and defense near BAs, Senior BAs, or Developers.
-- Senior Product Owner: commander / morale leader. `Roadmap Command`, `Department Rally`, and longer buffs.
-- Architect: system mage / engineer. `Blueprint Bolt`, `Platform Shift`, and bonus damage to Legacy System Golems.
+Classes are now identity and flavor only. Class labels, colors, and icons remain visible, but all classes can use the same weapons and items.
+
+- Developer
+- Senior Developer
+- Business Analyst
+- Senior Business Analyst
+- Product Owner
+- Senior Product Owner
+- Architect
 
 ## Enemies
 
@@ -99,11 +118,11 @@ Enemies spawn around WULAND, wander, chase nearby online players, deal contact d
 
 ## Server Persistence
 
-Prototype player persistence is stored as JSON at `server/data/wuland-players.json`. The server creates `server/data` automatically, debounces disk writes, saves joins, movement position updates, and disconnects, and removes expired offline players based on `OFFLINE_PLAYER_TTL_HOURS`.
+Prototype player persistence is stored as JSON at `server/data/wuland-players.json`. The server creates `server/data` automatically, debounces disk writes, saves joins, movement position updates, hotbar inventory, selected hotbar slot, dropped items, pickups, discards, and disconnects, and removes expired offline players based on `OFFLINE_PLAYER_TTL_HOURS`.
 
 Disconnected players remain visible as sleeping characters at their last saved position. If the same `playerId` returns, the sleeping character wakes up and no duplicate is created. If the same `playerId` connects twice at the same time, the second connection is rejected with a clear error.
 
-Combat state is not permanent yet. Player HP, cooldowns, shields, buffs, and enemies reset when the server restarts.
+Dropped items are server persisted and survive server restart if the JSON file remains available. Combat state itself is not permanent yet: player HP and enemies reset when the server restarts.
 
 JSON file persistence is prototype-only. A production version needs real accounts/authentication and database-backed persistence such as SQLite, Redis, or Postgres.
 
@@ -139,7 +158,7 @@ See `NAS_DEPLOYMENT.md` for the step-by-step checklist.
 ## Project Shape
 
 - `client`: Phaser 3, TypeScript, Vite, localStorage save data, and Colyseus client networking.
-- `shared`: shared constants, validation helpers, movement rules, combat data, player profile types, network state, map bounds, and collision rectangles.
+- `shared`: shared constants, validation helpers, movement rules, item definitions, player profile types, network state, map bounds, and collision rectangles.
 - `server`: Node.js, TypeScript, Express health endpoint, Colyseus room, JSON player store, and Docker deployment files.
 
 The production build is deployed to GitHub Pages at `https://wuland.bekulov.com`. The repository includes a GitHub Actions Pages workflow and also keeps root-level built assets for the current branch-based Pages configuration.
@@ -150,6 +169,8 @@ Phase 1 added local character creation, profile/progress persistence, and the pl
 
 Phase 2 adds multiplayer, server-authoritative movement, and offline sleeping player persistence.
 
-Phase 3 adds simple class abilities, enemies, HP, attacks, cooldowns, defeat, and respawn.
+Phase 3 added simple class abilities, enemies, HP, attacks, cooldowns, defeat, and respawn.
 
-Phase 4 will add mobile controls and deployment hardening.
+Phase 4 added mobile controls and deployment hardening.
+
+Phase 5 replaces class abilities with shared weapons, a 9-slot inventory hotbar, item dropping, pickup, and dropped-item persistence.

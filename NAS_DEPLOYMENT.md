@@ -20,6 +20,7 @@ If Synology only shows an option to upload a `.yml` file, use this easier flow:
 
 ```yaml
 image: ghcr.io/kbekulov/wuland-server:latest
+pull_policy: always
 ```
 
 5. In the same file, replace:
@@ -32,14 +33,14 @@ with your Cloudflare Tunnel token.
 
 6. Upload `synology-compose.yml` in Synology Container Manager.
 
-Current prototype cleanup settings in `synology-compose.yml`:
+Current prototype settings in `synology-compose.yml`:
 
 ```yaml
-CLEAR_PLAYER_STORE_ON_START: "true"
+CLEAR_PLAYER_STORE_ON_START: "false"
 ENEMY_AI_PAUSED: "true"
 ```
 
-That means the next NAS server start will clear stored sleeping/offline players and keep enemies frozen in place. After the cleanup has happened, set `CLEAR_PLAYER_STORE_ON_START` back to `"false"` if you want new sleeping players to persist across future restarts.
+That means sleeping players, inventories, and dropped items persist normally, while enemies remain frozen in place for now. `pull_policy: always` helps Synology pull a fresh `latest` image when the project is updated.
 
 This option does not require copying the whole project to the NAS. The NAS pulls the already-built game server image from GitHub Container Registry.
 

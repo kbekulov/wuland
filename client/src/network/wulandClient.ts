@@ -1,6 +1,7 @@
 import { Client, type Room } from "colyseus.js";
 import type {
   CombatEvent,
+  DroppedItemNetworkState,
   EnemyNetworkState,
   PlayerNetworkState,
   WulandJoinOptions
@@ -20,14 +21,23 @@ export interface WulandEnemiesMap {
   get(enemyId: string): EnemyNetworkState | undefined;
 }
 
+export interface WulandDroppedItemsMap {
+  forEach(
+    callback: (item: DroppedItemNetworkState, droppedItemId: string) => void
+  ): void;
+  get(droppedItemId: string): DroppedItemNetworkState | undefined;
+}
+
 export interface WulandRoomState {
   players: WulandPlayersMap;
   enemies: WulandEnemiesMap;
+  droppedItems: WulandDroppedItemsMap;
   totalPlayers: number;
   onlinePlayers: number;
   sleepingPlayers: number;
   totalEnemies: number;
   aliveEnemies: number;
+  totalDroppedItems: number;
 }
 
 export type WulandClientRoom = Room<WulandRoomState>;

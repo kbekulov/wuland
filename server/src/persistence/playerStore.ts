@@ -3,19 +3,23 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
+  HOTBAR_SLOT_COUNT,
   PLAYER_MAX_HP,
   WULAND_WORLD,
   clampWorldPosition,
   isCharacterCosmetics,
+  isDroppedItemNetworkState,
   isDirection,
   isGender,
   isPlayerClass,
   isValidWorldPosition,
+  normalizeInventory,
   type Direction,
+  type DroppedItemNetworkState,
   type PlayerNetworkState
 } from "@wuland/shared";
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const DEFAULT_STORE_PATH = fileURLToPath(
   new URL("../../data/wuland-players.json", import.meta.url)
 );
@@ -24,6 +28,7 @@ const SAVE_DEBOUNCE_MS = 450;
 interface PlayerStoreFile {
   version: number;
   players: PlayerNetworkState[];
+  droppedItems?: DroppedItemNetworkState[];
 }
 
 export interface PlayerStoreOptions {
@@ -37,6 +42,7 @@ export class PlayerStore {
   private readonly offlinePlayerTtlHours: number;
   private readonly clearOnStart: boolean;
   private readonly players = new Map<string, PlayerNetworkState>();
+  private readonly droppedItems = new Map<string, DroppedItemNetworkState>();
   private saveTimer?: NodeJS.Timeout;
   private loaded = false;
 
@@ -70,6 +76,9 @@ export class PlayerStore {
         parsed.players.forEach((player) => {
           this.players.set(player.playerId, normalizeStoredPlayer(player));
         });
+        parsed.droppedItems?.forEach((droppedItem) => {
+          this.droppedItems.set(droppedItem.droppedItemId, cloneDroppedItem(droppedItem));
+        });
       }
     } catch (error) {
       if (!isMissingFileError(error)) {
@@ -89,6 +98,34 @@ export class PlayerStore {
   get(playerId: string): PlayerNetworkState | undefined {
     const player = this.players.get(playerId);
     return player ? clonePlayer(player) : undefined;
+  }
+
+  allDroppedItems(): DroppedItemNetworkState[] {
+    return [...this.droppedItems.values()].map(cloneDroppedItem);
+  }
+
+  upsertDroppedItem(item: DroppedItemNetworkState, options: { immediate?: boolean } = {}): void {
+    this.droppedItems.set(item.droppedItemId, cloneDroppedItem(item));
+
+    if (options.immediate) {
+      void this.saveNow();
+      return;
+    }
+
+    this.scheduleSave();
+  }
+
+  removeDroppedItem(droppedItemId: string, options: { immediate?: boolean } = {}): void {
+    if (!this.droppedItems.delete(droppedItemId)) {
+      return;
+    }
+
+    if (options.immediate) {
+      void this.saveNow();
+      return;
+    }
+
+    this.scheduleSave();
   }
 
   upsert(player: PlayerNetworkState, options: { immediate?: boolean } = {}): void {
@@ -146,7 +183,8 @@ export class PlayerStore {
 
     const payload: PlayerStoreFile = {
       version: STORE_VERSION,
-      players: [...this.players.values()].map(clonePlayer)
+      players: [...this.players.values()].map(clonePlayer),
+      droppedItems: [...this.droppedItems.values()].map(cloneDroppedItem)
     };
 
     await writeFile(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -166,8 +204,13 @@ const isPlayerStoreFile = (value: unknown): value is PlayerStoreFile => {
     return false;
   }
 
-  const file = value as { players: unknown };
-  return Array.isArray(file.players) && file.players.every(isStoredPlayer);
+  const file = value as { players: unknown; droppedItems?: unknown };
+  const droppedItems =
+    !("droppedItems" in file) ||
+    file.droppedItems === undefined ||
+    (Array.isArray(file.droppedItems) && file.droppedItems.every(isDroppedItemNetworkState));
+
+  return Array.isArray(file.players) && file.players.every(isStoredPlayer) && droppedItems;
 };
 
 const isStoredPlayer = (value: unknown): value is PlayerNetworkState => {
@@ -206,6 +249,8 @@ const isStoredPlayer = (value: unknown): value is PlayerNetworkState => {
     (player.specialCooldownUntil === undefined || typeof player.specialCooldownUntil === "number") &&
     (player.activeBuffs === undefined || typeof player.activeBuffs === "string") &&
     (player.markedTargets === undefined || typeof player.markedTargets === "string") &&
+    (player.inventory === undefined || Array.isArray(player.inventory)) &&
+    (player.selectedHotbarSlot === undefined || typeof player.selectedHotbarSlot === "number") &&
     typeof player.role === "string" &&
     typeof player.joinedAt === "string" &&
     typeof player.lastSeenAt === "string" &&
@@ -232,12 +277,24 @@ const normalizeStoredPlayer = (player: PlayerNetworkState): PlayerNetworkState =
     respawnAt: 0,
     specialCooldownUntil: 0,
     activeBuffs: "",
-    markedTargets: ""
+    markedTargets: "",
+    inventory: normalizeInventory(player.inventory, player.playerId),
+    selectedHotbarSlot:
+      Number.isInteger(player.selectedHotbarSlot) &&
+      player.selectedHotbarSlot >= 0 &&
+      player.selectedHotbarSlot < HOTBAR_SLOT_COUNT
+        ? player.selectedHotbarSlot
+        : 0
   };
 };
 
 const clonePlayer = (player: PlayerNetworkState): PlayerNetworkState => ({
-  ...player
+  ...player,
+  inventory: normalizeInventory(player.inventory, player.playerId)
+});
+
+const cloneDroppedItem = (item: DroppedItemNetworkState): DroppedItemNetworkState => ({
+  ...item
 });
 
 const isMissingFileError = (error: unknown): boolean =>

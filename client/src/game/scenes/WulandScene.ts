@@ -1,16 +1,19 @@
 import Phaser from "phaser";
 import {
   BUILDING_NAMES,
-  CLASS_COMBAT_METADATA,
   CLASS_METADATA,
   ENEMY_DEFINITIONS,
+  HOTBAR_SLOT_COUNT,
+  ITEM_DEFINITIONS,
   WULAND_WORLD,
   clampWorldPosition,
   collidesWithWorld,
   type BuildingName,
   type CombatEvent,
   type Direction,
+  type DroppedItemNetworkState,
   type EnemyNetworkState,
+  type InventorySlotState,
   type LocalProgress,
   type MovementInput,
   type PlayerNetworkState,
@@ -47,9 +50,10 @@ interface WasdKeys {
 }
 
 interface CombatKeys {
-  basic: Phaser.Input.Keyboard.Key;
-  special: Phaser.Input.Keyboard.Key;
-  specialAlt: Phaser.Input.Keyboard.Key;
+  attack: Phaser.Input.Keyboard.Key;
+  use: Phaser.Input.Keyboard.Key;
+  pickup: Phaser.Input.Keyboard.Key;
+  hotbar: Phaser.Input.Keyboard.Key[];
 }
 
 interface PlayerAvatar {
@@ -81,6 +85,15 @@ interface EnemyAvatar {
   lastState: EnemyNetworkState;
 }
 
+interface DroppedItemAvatar {
+  droppedItemId: string;
+  container: Phaser.GameObjects.Container;
+  body: Phaser.GameObjects.Rectangle;
+  iconLabel: Phaser.GameObjects.Text;
+  nameLabel: Phaser.GameObjects.Text;
+  lastState: DroppedItemNetworkState;
+}
+
 export interface WulandConnectionState {
   status: "connecting" | "connected" | "disconnected" | "error";
   message: string;
@@ -93,8 +106,11 @@ export interface WulandConnectionState {
   localMaxHp: number;
   localShield: number;
   defeated: boolean;
-  specialCooldownUntil: number;
-  specialName: string;
+  inventory: InventorySlotState[];
+  selectedHotbarSlot: number;
+  activeItemName: string;
+  nearbyPickupName: string;
+  totalDroppedItems: number;
 }
 
 const ZERO_INPUT: MovementInput = {
@@ -118,8 +134,10 @@ export class WulandScene extends Phaser.Scene {
   private mobileRoot?: HTMLDivElement;
   private avatars = new Map<string, PlayerAvatar>();
   private enemyAvatars = new Map<string, EnemyAvatar>();
+  private droppedItemAvatars = new Map<string, DroppedItemAvatar>();
   private latestPlayers = new Map<string, PlayerNetworkState>();
   private latestEnemies = new Map<string, EnemyNetworkState>();
+  private latestDroppedItems = new Map<string, DroppedItemNetworkState>();
   private connectionState: WulandConnectionState = {
     status: "connecting",
     message: "Connecting to WULAND server",
@@ -132,8 +150,11 @@ export class WulandScene extends Phaser.Scene {
     localMaxHp: 0,
     localShield: 0,
     defeated: false,
-    specialCooldownUntil: 0,
-    specialName: ""
+    inventory: createEmptyClientInventory(),
+    selectedHotbarSlot: 0,
+    activeItemName: "No item",
+    nearbyPickupName: "",
+    totalDroppedItems: 0
   };
   private selectedEnemyId = "";
   private virtualInput: MovementInput = { ...ZERO_INPUT };
@@ -171,8 +192,10 @@ export class WulandScene extends Phaser.Scene {
     this.visitedBuildings = new Set(this.progress.visitedBuildings);
     this.avatars.clear();
     this.enemyAvatars.clear();
+    this.droppedItemAvatars.clear();
     this.latestPlayers.clear();
     this.latestEnemies.clear();
+    this.latestDroppedItems.clear();
     this.selectedEnemyId = "";
     this.virtualInput = { ...ZERO_INPUT };
     this.clickTarget = undefined;
@@ -193,8 +216,11 @@ export class WulandScene extends Phaser.Scene {
       localMaxHp: 0,
       localShield: 0,
       defeated: false,
-      specialCooldownUntil: 0,
-      specialName: CLASS_COMBAT_METADATA[this.profile.class].specialName
+      inventory: createEmptyClientInventory(),
+      selectedHotbarSlot: 0,
+      activeItemName: "No item",
+      nearbyPickupName: "",
+      totalDroppedItems: 0
     };
 
     this.physics.world.setBounds(0, 0, WULAND_WORLD.width, WULAND_WORLD.height);
@@ -213,6 +239,9 @@ export class WulandScene extends Phaser.Scene {
     this.emitConnectionState();
 
     this.game.events.on("wuland:editCharacter", this.openCharacterSelect, this);
+    this.game.events.on("wuland:selectHotbarSlot", this.selectHotbarSlot, this);
+    this.game.events.on("wuland:moveHotbarItem", this.moveHotbarItem, this);
+    this.game.events.on("wuland:discardHotbarItem", this.discardHotbarItem, this);
     window.addEventListener("blur", this.handleWindowBlur);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
 
@@ -229,6 +258,7 @@ export class WulandScene extends Phaser.Scene {
 
     if (localPlayer) {
       this.updateClickTarget(localPlayer, time);
+      this.updateNearbyPickup(localPlayer);
       this.updateVisitedBuildings(localPlayer);
 
       if (time - this.lastProgressSave > 650) {
@@ -421,9 +451,20 @@ export class WulandScene extends Phaser.Scene {
       right: Phaser.Input.Keyboard.KeyCodes.D
     }) as WasdKeys;
     this.combatKeys = {
-      basic: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.J),
-      special: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.K),
-      specialAlt: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+      attack: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
+      use: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E),
+      pickup: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F),
+      hotbar: [
+        Phaser.Input.Keyboard.KeyCodes.ONE,
+        Phaser.Input.Keyboard.KeyCodes.TWO,
+        Phaser.Input.Keyboard.KeyCodes.THREE,
+        Phaser.Input.Keyboard.KeyCodes.FOUR,
+        Phaser.Input.Keyboard.KeyCodes.FIVE,
+        Phaser.Input.Keyboard.KeyCodes.SIX,
+        Phaser.Input.Keyboard.KeyCodes.SEVEN,
+        Phaser.Input.Keyboard.KeyCodes.EIGHT,
+        Phaser.Input.Keyboard.KeyCodes.NINE
+      ].map((keyCode) => this.input.keyboard!.addKey(keyCode))
     };
     this.debugKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F3);
     this.input.on("pointerdown", this.handlePointerDown, this);
@@ -451,8 +492,9 @@ export class WulandScene extends Phaser.Scene {
         <button type="button" data-mobile-dir="right" aria-label="Move right">Right</button>
       </div>
       <div class="mobile-actions" aria-label="Combat controls">
-        <button type="button" data-mobile-action="basic">Attack</button>
-        <button type="button" data-mobile-action="special">Special</button>
+        <button type="button" data-mobile-action="attack">Attack</button>
+        <button type="button" data-mobile-action="use">Use</button>
+        <button type="button" data-mobile-action="pickup">Pick up</button>
         <button type="button" data-mobile-action="help">Help</button>
         <button type="button" data-mobile-action="debug">F3</button>
       </div>
@@ -481,13 +523,17 @@ export class WulandScene extends Phaser.Scene {
       });
     });
 
-    root.querySelector('[data-mobile-action="basic"]')?.addEventListener("pointerdown", (event) => {
+    root.querySelector('[data-mobile-action="attack"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
-      this.sendBasicAttack();
+      this.sendWeaponAttack();
     });
-    root.querySelector('[data-mobile-action="special"]')?.addEventListener("pointerdown", (event) => {
+    root.querySelector('[data-mobile-action="use"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
-      this.sendSpecialAbility();
+      this.useSelectedItem();
+    });
+    root.querySelector('[data-mobile-action="pickup"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.pickupNearbyItem();
     });
     root.querySelector('[data-mobile-action="help"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -550,26 +596,48 @@ export class WulandScene extends Phaser.Scene {
       this.game.events.emit("wuland:toggleDebug");
     }
 
-    if (Phaser.Input.Keyboard.JustDown(this.combatKeys.basic)) {
-      this.sendBasicAttack();
+    this.combatKeys.hotbar.forEach((key, index) => {
+      if (Phaser.Input.Keyboard.JustDown(key)) {
+        this.selectHotbarSlot(index);
+      }
+    });
+
+    if (Phaser.Input.Keyboard.JustDown(this.combatKeys.attack)) {
+      this.sendWeaponAttack();
     }
 
-    if (
-      Phaser.Input.Keyboard.JustDown(this.combatKeys.special) ||
-      Phaser.Input.Keyboard.JustDown(this.combatKeys.specialAlt)
-    ) {
-      this.sendSpecialAbility();
+    if (Phaser.Input.Keyboard.JustDown(this.combatKeys.use)) {
+      this.useSelectedItem();
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.combatKeys.pickup)) {
+      this.pickupNearbyItem();
     }
   }
 
-  private sendBasicAttack(targetEnemyId = this.selectedEnemyId): void {
+  private sendWeaponAttack(targetEnemyId = this.selectedEnemyId): void {
     const request = this.buildCombatRequest(targetEnemyId);
-    this.room?.send("basicAttack", request);
+    this.room?.send("attack", request);
   }
 
-  private sendSpecialAbility(targetEnemyId = this.selectedEnemyId): void {
-    const request = this.buildCombatRequest(targetEnemyId);
-    this.room?.send("specialAbility", request);
+  private useSelectedItem(): void {
+    this.room?.send("useSelectedItem");
+  }
+
+  private pickupNearbyItem(): void {
+    this.room?.send("pickupItem", {});
+  }
+
+  private selectHotbarSlot(slotIndex: number): void {
+    this.room?.send("selectHotbarSlot", { slotIndex });
+  }
+
+  private moveHotbarItem(payload: { fromSlotIndex: number; toSlotIndex: number }): void {
+    this.room?.send("moveInventoryItem", payload);
+  }
+
+  private discardHotbarItem(slotIndex: number): void {
+    this.room?.send("discardInventoryItem", { slotIndex });
   }
 
   private buildCombatRequest(targetEnemyId: string): { targetEnemyId?: string; direction: Direction } {
@@ -597,7 +665,7 @@ export class WulandScene extends Phaser.Scene {
 
     this.selectedEnemyId = enemy.enemyId;
     this.refreshEnemySelection();
-    this.sendBasicAttack(enemy.enemyId);
+    this.showFloatingText(enemy.x, enemy.y, "target", "#fff3bf");
   }
 
   private setClickTarget(x: number, y: number): void {
@@ -690,8 +758,10 @@ export class WulandScene extends Phaser.Scene {
 
     const seenPlayers = new Set<string>();
     const seenEnemies = new Set<string>();
+    const seenDroppedItems = new Set<string>();
     this.latestPlayers.clear();
     this.latestEnemies.clear();
+    this.latestDroppedItems.clear();
     state.players?.forEach((playerSchema) => {
       const player = snapshotPlayer(playerSchema);
       seenPlayers.add(player.playerId);
@@ -703,6 +773,12 @@ export class WulandScene extends Phaser.Scene {
       seenEnemies.add(enemy.enemyId);
       this.latestEnemies.set(enemy.enemyId, enemy);
       this.renderEnemy(enemy);
+    });
+    state.droppedItems?.forEach((itemSchema) => {
+      const item = snapshotDroppedItem(itemSchema);
+      seenDroppedItems.add(item.droppedItemId);
+      this.latestDroppedItems.set(item.droppedItemId, item);
+      this.renderDroppedItem(item);
     });
 
     for (const [playerId, avatar] of this.avatars) {
@@ -720,7 +796,19 @@ export class WulandScene extends Phaser.Scene {
     }
 
     const localPlayer = this.latestPlayers.get(this.profile.playerId);
-    const combatMeta = CLASS_COMBAT_METADATA[this.profile.class];
+    for (const [droppedItemId, avatar] of this.droppedItemAvatars) {
+      if (!seenDroppedItems.has(droppedItemId)) {
+        this.destroyDroppedItemAvatar(avatar);
+        this.droppedItemAvatars.delete(droppedItemId);
+      }
+    }
+
+    const inventory = localPlayer?.inventory ?? createEmptyClientInventory();
+    const selectedHotbarSlot = localPlayer?.selectedHotbarSlot ?? 0;
+    const activeItem = inventory[selectedHotbarSlot];
+    const activeItemName = activeItem?.itemDefinitionId
+      ? ITEM_DEFINITIONS[activeItem.itemDefinitionId].displayName
+      : "No item";
 
     this.setConnectionState({
       totalPlayers: state.totalPlayers ?? seenPlayers.size,
@@ -732,8 +820,10 @@ export class WulandScene extends Phaser.Scene {
       localMaxHp: localPlayer?.maxHp ?? 0,
       localShield: localPlayer?.shield ?? 0,
       defeated: Boolean(localPlayer?.defeated),
-      specialCooldownUntil: localPlayer?.specialCooldownUntil ?? 0,
-      specialName: combatMeta.specialName
+      inventory,
+      selectedHotbarSlot,
+      activeItemName,
+      totalDroppedItems: state.totalDroppedItems ?? seenDroppedItems.size
     });
   }
 
@@ -908,6 +998,50 @@ export class WulandScene extends Phaser.Scene {
     }
   }
 
+  private renderDroppedItem(item: DroppedItemNetworkState): void {
+    const definition = ITEM_DEFINITIONS[item.itemDefinitionId];
+    let avatar = this.droppedItemAvatars.get(item.droppedItemId);
+
+    if (!avatar) {
+      const body = this.add
+        .rectangle(0, 0, 38, 30, 0x1f2c2e, 0.92)
+        .setStrokeStyle(2, 0xffe8a3, 0.9);
+      const iconLabel = this.add
+        .text(0, -2, definition.iconText, {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "11px",
+          color: "#fff8e7",
+          fontStyle: "bold"
+        })
+        .setOrigin(0.5);
+      const nameLabel = this.add
+        .text(0, -28, definition.displayName, {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "11px",
+          color: "#1b1c1d",
+          backgroundColor: "#fff3bf",
+          padding: { x: 5, y: 2 }
+        })
+        .setOrigin(0.5);
+      const container = this.add.container(item.x, item.y, [body, iconLabel, nameLabel]);
+      container.setDepth(38);
+      avatar = {
+        droppedItemId: item.droppedItemId,
+        container,
+        body,
+        iconLabel,
+        nameLabel,
+        lastState: item
+      };
+      this.droppedItemAvatars.set(item.droppedItemId, avatar);
+    }
+
+    avatar.lastState = item;
+    avatar.container.setPosition(item.x, item.y);
+    avatar.iconLabel.setText(item.quantity > 1 ? `${definition.iconText} x${item.quantity}` : definition.iconText);
+    avatar.nameLabel.setText(definition.displayName);
+  }
+
   private updateAvatarPositions(delta: number): void {
     const interpolation = Phaser.Math.Clamp(delta / 85, 0.12, 1);
 
@@ -945,6 +1079,17 @@ export class WulandScene extends Phaser.Scene {
     avatar.classLabel.setPosition(x, y - 47);
     avatar.statusLabel.setPosition(x, y - 28);
     avatar.statusLabel.setVisible(sleeping || defeated);
+  }
+
+  private updateNearbyPickup(player: PlayerNetworkState): void {
+    const nearby = nearestDroppedItemClient(player, this.latestDroppedItems, 66);
+    const nearbyPickupName = nearby
+      ? ITEM_DEFINITIONS[nearby.itemDefinitionId].displayName
+      : "";
+
+    if (nearbyPickupName !== this.connectionState.nearbyPickupName) {
+      this.setConnectionState({ nearbyPickupName });
+    }
   }
 
   private updateVisitedBuildings(player: PlayerNetworkState): void {
@@ -1009,7 +1154,7 @@ export class WulandScene extends Phaser.Scene {
 
     this.showFloatingText(event.x, event.y, event.text, event.color);
 
-    if (event.type === "basic" || event.type === "special") {
+    if (event.type === "basic" || event.type === "special" || event.type === "weapon") {
       this.showAttackEffect(event);
     }
 
@@ -1054,7 +1199,7 @@ export class WulandScene extends Phaser.Scene {
     const start = source
       ? { x: source.sprite.x, y: source.sprite.y - 10 }
       : { x: event.x, y: event.y };
-    const projectile = this.add.circle(start.x, start.y, event.type === "special" ? 8 : 5, parseCssColor(event.color), 0.92)
+    const projectile = this.add.circle(start.x, start.y, event.itemDefinitionId === "sword" ? 11 : 6, parseCssColor(event.color), 0.92)
       .setDepth(105);
 
     this.tweens.add({
@@ -1062,7 +1207,7 @@ export class WulandScene extends Phaser.Scene {
       x: event.x,
       y: event.y,
       alpha: 0.2,
-      duration: event.type === "special" ? 260 : 180,
+      duration: event.itemDefinitionId === "sword" ? 120 : 220,
       ease: "Quad.easeOut",
       onComplete: () => projectile.destroy()
     });
@@ -1190,6 +1335,9 @@ export class WulandScene extends Phaser.Scene {
     this.clearClickTarget(true);
     this.leaveRoom();
     this.game.events.off("wuland:editCharacter", this.openCharacterSelect, this);
+    this.game.events.off("wuland:selectHotbarSlot", this.selectHotbarSlot, this);
+    this.game.events.off("wuland:moveHotbarItem", this.moveHotbarItem, this);
+    this.game.events.off("wuland:discardHotbarItem", this.discardHotbarItem, this);
     window.removeEventListener("blur", this.handleWindowBlur);
     this.input.off("pointerdown", this.handlePointerDown, this);
     this.mobileRoot?.remove();
@@ -1199,10 +1347,13 @@ export class WulandScene extends Phaser.Scene {
     this.destinationMarker = undefined;
     this.avatars.forEach((avatar) => this.destroyAvatar(avatar));
     this.enemyAvatars.forEach((avatar) => this.destroyEnemyAvatar(avatar));
+    this.droppedItemAvatars.forEach((avatar) => this.destroyDroppedItemAvatar(avatar));
     this.avatars.clear();
     this.enemyAvatars.clear();
+    this.droppedItemAvatars.clear();
     this.latestPlayers.clear();
     this.latestEnemies.clear();
+    this.latestDroppedItems.clear();
 
     if (this.scene.isActive("UIScene")) {
       this.scene.stop("UIScene");
@@ -1233,6 +1384,10 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private destroyEnemyAvatar(avatar: EnemyAvatar): void {
+    avatar.container.destroy(true);
+  }
+
+  private destroyDroppedItemAvatar(avatar: DroppedItemAvatar): void {
     avatar.container.destroy(true);
   }
 
@@ -1280,6 +1435,8 @@ const snapshotPlayer = (player: PlayerNetworkState): PlayerNetworkState => ({
   specialCooldownUntil: player.specialCooldownUntil,
   activeBuffs: player.activeBuffs,
   markedTargets: player.markedTargets,
+  inventory: snapshotInventory(player.inventory),
+  selectedHotbarSlot: player.selectedHotbarSlot ?? 0,
   role: player.role,
   joinedAt: player.joinedAt,
   lastSeenAt: player.lastSeenAt,
@@ -1303,6 +1460,43 @@ const snapshotEnemy = (enemy: EnemyNetworkState): EnemyNetworkState => ({
   weakenedUntil: enemy.weakenedUntil,
   respawnAt: enemy.respawnAt
 });
+
+const snapshotDroppedItem = (item: DroppedItemNetworkState): DroppedItemNetworkState => ({
+  droppedItemId: item.droppedItemId,
+  itemDefinitionId: item.itemDefinitionId,
+  itemInstanceId: item.itemInstanceId,
+  quantity: item.quantity,
+  mapId: item.mapId,
+  x: item.x,
+  y: item.y,
+  droppedByPlayerId: item.droppedByPlayerId,
+  droppedAt: item.droppedAt
+});
+
+const createEmptyClientInventory = (): InventorySlotState[] =>
+  Array.from({ length: HOTBAR_SLOT_COUNT }, (_value, slotIndex) => ({
+    slotIndex,
+    itemDefinitionId: "",
+    itemInstanceId: "",
+    quantity: 0
+  }));
+
+const snapshotInventory = (inventory: PlayerNetworkState["inventory"]): InventorySlotState[] => {
+  const slots = createEmptyClientInventory();
+
+  Array.from(inventory ?? []).forEach((slot) => {
+    if (slot.slotIndex >= 0 && slot.slotIndex < HOTBAR_SLOT_COUNT) {
+      slots[slot.slotIndex] = {
+        slotIndex: slot.slotIndex,
+        itemDefinitionId: slot.itemDefinitionId,
+        itemInstanceId: slot.itemInstanceId,
+        quantity: slot.quantity
+      };
+    }
+  });
+
+  return slots;
+};
 
 const countPlayers = (
   players: Map<string, PlayerNetworkState>,
@@ -1333,6 +1527,26 @@ const countAliveEnemies = (enemies: Map<string, EnemyNetworkState>): number => {
   });
 
   return count;
+};
+
+const nearestDroppedItemClient = (
+  position: { x: number; y: number },
+  droppedItems: Map<string, DroppedItemNetworkState>,
+  range: number
+): DroppedItemNetworkState | null => {
+  let best: DroppedItemNetworkState | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  droppedItems.forEach((item) => {
+    const distanceToItem = Phaser.Math.Distance.Between(position.x, position.y, item.x, item.y);
+
+    if (distanceToItem <= range && distanceToItem < bestDistance) {
+      best = item;
+      bestDistance = distanceToItem;
+    }
+  });
+
+  return best;
 };
 
 const parseCssColor = (color: string): number =>

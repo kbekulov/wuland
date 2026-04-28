@@ -1,38 +1,47 @@
 import { Client, Room } from "colyseus";
-import { MapSchema, Schema, type } from "@colyseus/schema";
+import { ArraySchema, MapSchema, Schema, type } from "@colyseus/schema";
 import {
-  CLASS_COMBAT_METADATA,
   CLASS_METADATA,
   DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
   ENEMY_DEFINITIONS,
-  MARK_DAMAGE_MULTIPLIER,
+  HOTBAR_SLOT_COUNT,
+  ITEM_DEFINITIONS,
   NETWORK_TICK_RATE,
   PLAYER_MAX_HP,
   PLAYER_MOVE_SPEED,
   PLAYER_RESPAWN_MS,
   WULAND_COLLISION_RECTS,
   WULAND_ENEMY_SPAWNS,
+  WULAND_MAP_ID,
   WULAND_WORLD,
   applyServerMovement,
   applyServerVectorMovement,
   clampWorldPosition,
   collidesWithWorld,
+  createItemInstanceId,
   isCombatRequest,
+  isHotbarSelectRequest,
+  isInventoryMoveRequest,
+  isInventorySlotRequest,
   isMoveTargetRequest,
   isMovementInput,
+  isPickupItemRequest,
   isValidLocalProgress,
   isValidPlayerProfile,
   isValidWorldPosition,
-  type BuffType,
+  normalizeInventory,
   type CombatEvent,
   type CombatRequest,
   type Direction,
+  type DroppedItemNetworkState,
   type EnemyNetworkState,
   type EnemyType,
+  type InventorySlotState,
+  type ItemDefinition,
+  type ItemDefinitionId,
   type LocalProgress,
   type MovementInput,
   type MoveTargetRequest,
-  type PlayerClass,
   type PlayerNetworkState,
   type PlayerProfile,
   type WorldPosition,
@@ -50,11 +59,17 @@ const ZERO_INPUT: MovementInput = {
 const SAVE_POSITION_DELTA_SQUARED = 16;
 const SAVE_INTERVAL_MS = 5000;
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
-const BUFF_DURATION_MS = 5200;
-const MARK_DURATION_MS = 6500;
-const WEAKEN_DURATION_MS = 6200;
 const BASIC_FACING_DOT = Math.cos((85 * Math.PI) / 180);
-const BASE_ASSIST_RANGE = 230;
+const WEAPON_ATTACK_COOLDOWN_MS = 420;
+const PICKUP_RANGE = 66;
+const DROP_OFFSET = 34;
+
+export class WulandInventorySlotSchema extends Schema {
+  @type("number") slotIndex = 0;
+  @type("string") itemDefinitionId = "";
+  @type("string") itemInstanceId = "";
+  @type("number") quantity = 0;
+}
 
 export class WulandPlayerSchema extends Schema {
   @type("string") playerId = "";
@@ -82,6 +97,8 @@ export class WulandPlayerSchema extends Schema {
   @type("number") specialCooldownUntil = 0;
   @type("string") activeBuffs = "";
   @type("string") markedTargets = "";
+  @type([WulandInventorySlotSchema]) inventory = new ArraySchema<WulandInventorySlotSchema>();
+  @type("number") selectedHotbarSlot = 0;
   @type("string") role = "";
   @type("string") joinedAt = "";
   @type("string") lastSeenAt = "";
@@ -106,14 +123,28 @@ export class WulandEnemySchema extends Schema {
   @type("number") respawnAt = 0;
 }
 
+export class WulandDroppedItemSchema extends Schema {
+  @type("string") droppedItemId = "";
+  @type("string") itemDefinitionId = "";
+  @type("string") itemInstanceId = "";
+  @type("number") quantity = 1;
+  @type("string") mapId = WULAND_MAP_ID;
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("string") droppedByPlayerId = "";
+  @type("string") droppedAt = "";
+}
+
 export class WulandRoomState extends Schema {
   @type({ map: WulandPlayerSchema }) players = new MapSchema<WulandPlayerSchema>();
   @type({ map: WulandEnemySchema }) enemies = new MapSchema<WulandEnemySchema>();
+  @type({ map: WulandDroppedItemSchema }) droppedItems = new MapSchema<WulandDroppedItemSchema>();
   @type("number") totalPlayers = 0;
   @type("number") onlinePlayers = 0;
   @type("number") sleepingPlayers = 0;
   @type("number") totalEnemies = 0;
   @type("number") aliveEnemies = 0;
+  @type("number") totalDroppedItems = 0;
 }
 
 interface WulandRoomOptions {
@@ -132,7 +163,6 @@ export class WulandRoom extends Room<WulandRoomState> {
   private readonly enemyContactTimes = new Map<string, number>();
   private enemyAiPaused = false;
   private combatEventCounter = 0;
-  private dynamicEnemyCounter = 0;
 
   onCreate(options: WulandRoomOptions): void {
     this.roomId = ROOM_ID;
@@ -150,6 +180,9 @@ export class WulandRoom extends Room<WulandRoomState> {
         y: player.y,
         at: Date.now()
       });
+    });
+    this.playerStore.allDroppedItems().forEach((item) => {
+      this.state.droppedItems.set(item.droppedItemId, droppedItemFromRecord(item));
     });
     this.spawnInitialEnemies();
     this.updateCounts();
@@ -182,6 +215,16 @@ export class WulandRoom extends Room<WulandRoomState> {
       }
     });
 
+    this.onMessage("attack", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isCombatRequest(message)) {
+        return;
+      }
+
+      this.handleWeaponAttack(playerId, message);
+    });
+
     this.onMessage("basicAttack", (client, message: unknown) => {
       const playerId = this.sessionToPlayerId.get(client.sessionId);
 
@@ -189,17 +232,55 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
-      this.handleBasicAttack(playerId, message);
+      this.handleWeaponAttack(playerId, message);
     });
 
-    this.onMessage("specialAbility", (client, message: unknown) => {
+    this.onMessage("selectHotbarSlot", (client, message: unknown) => {
       const playerId = this.sessionToPlayerId.get(client.sessionId);
 
-      if (!playerId || !isCombatRequest(message)) {
+      if (!playerId || !isHotbarSelectRequest(message)) {
         return;
       }
 
-      this.handleSpecialAbility(playerId, message);
+      this.selectHotbarSlot(playerId, message.slotIndex);
+    });
+
+    this.onMessage("moveInventoryItem", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isInventoryMoveRequest(message)) {
+        return;
+      }
+
+      this.moveInventoryItem(playerId, message.fromSlotIndex, message.toSlotIndex);
+    });
+
+    this.onMessage("discardInventoryItem", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isInventorySlotRequest(message)) {
+        return;
+      }
+
+      this.discardInventoryItem(playerId, message.slotIndex);
+    });
+
+    this.onMessage("useSelectedItem", (client) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (playerId) {
+        this.useSelectedItem(playerId);
+      }
+    });
+
+    this.onMessage("pickupItem", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isPickupItemRequest(message)) {
+        return;
+      }
+
+      this.pickupItem(playerId, (message as { droppedItemId?: string } | null | undefined)?.droppedItemId);
     });
 
     this.setSimulationInterval(
@@ -239,9 +320,15 @@ export class WulandRoom extends Room<WulandRoomState> {
       WULAND_WORLD.defaultSpawn;
     const position = clampWorldPosition(preferredPosition);
     const player = existing ?? new WulandPlayerSchema();
+    const existingRecord = existing ? recordFromSchema(existing) : null;
+    const inventory = stored?.inventory ?? existingRecord?.inventory;
 
     applyProfileToSchema(player, options.profile);
     resetPlayerCombat(player);
+    applyInventoryToSchema(player, inventory, options.profile.playerId);
+    player.selectedHotbarSlot = normalizeHotbarSlot(
+      stored?.selectedHotbarSlot ?? existingRecord?.selectedHotbarSlot ?? player.selectedHotbarSlot
+    );
     player.sessionId = client.sessionId;
     player.x = position.x;
     player.y = position.y;
@@ -306,8 +393,6 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
-      player.activeBuffs = pruneBuffs(player.activeBuffs, now);
-
       if (player.defeated) {
         player.moving = false;
 
@@ -325,8 +410,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       }
 
       const input = this.inputs.get(player.playerId) ?? ZERO_INPUT;
-      const moveDelta = hasBuff(player, "department-rally", now) ? deltaMs * 1.12 : deltaMs;
-      const result = this.applyPlayerMovement(player, input, moveDelta);
+      const result = this.applyPlayerMovement(player, input, deltaMs);
       const timestamp = new Date().toISOString();
 
       player.x = result.position.x;
@@ -485,12 +569,7 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
-      const className = player.className as PlayerClass;
-      const clientPressure =
-        enemy.type === "angry-client" || enemy.type === "escalation-demon";
-      const score = clientPressure && className.includes("product owner")
-        ? distanceToEnemy - 85
-        : distanceToEnemy;
+      const score = distanceToEnemy;
 
       if (score < bestScore) {
         bestScore = score;
@@ -563,7 +642,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.damagePlayer(player, definition.damage, enemy.enemyId, now);
   }
 
-  private handleBasicAttack(playerId: string, request: CombatRequest): void {
+  private handleWeaponAttack(playerId: string, request: CombatRequest): void {
     const player = this.state.players.get(playerId);
     const now = Date.now();
 
@@ -571,138 +650,76 @@ export class WulandRoom extends Room<WulandRoomState> {
       return;
     }
 
-    const combat = CLASS_COMBAT_METADATA[player.className as PlayerClass];
-    const previous = this.lastBasicAttack.get(playerId) ?? 0;
+    const activeItem = inventorySlotAt(player, player.selectedHotbarSlot);
 
-    if (now - previous < combat.basicCooldownMs) {
+    if (!activeItem) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Select a weapon", "#ffd8a8");
       return;
     }
 
-    const target = this.resolveEnemyTarget(player, request, combat.basicRange, now);
+    const itemDefinition = ITEM_DEFINITIONS[activeItem.itemDefinitionId as ItemDefinitionId];
+
+    if (!itemDefinition || itemDefinition.itemType !== "weapon") {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Select a weapon", "#ffd8a8");
+      return;
+    }
+
+    const previous = this.lastBasicAttack.get(playerId) ?? 0;
+
+    if (now - previous < WEAPON_ATTACK_COOLDOWN_MS) {
+      return;
+    }
+
+    const target = this.resolveWeaponTarget(player, request, itemDefinition);
 
     if (!target) {
+      this.lastBasicAttack.set(playerId, now);
+      this.broadcastCombatEvent(
+        "weapon",
+        player.playerId,
+        player.playerId,
+        player.x + vectorForDirection(request.direction ?? player.direction).x * 34,
+        player.y + vectorForDirection(request.direction ?? player.direction).y * 34,
+        0,
+        "miss",
+        "#dbe4ff",
+        activeItem.itemDefinitionId as ItemDefinitionId
+      );
       return;
     }
 
     this.lastBasicAttack.set(playerId, now);
-    const damage = this.calculatePlayerDamage(player, target, combat.basicDamage, now);
-    this.damageEnemy(target, damage, player, now, combat.basicName);
-
-    if (player.className === "business analyst") {
-      this.markEnemy(target, player.playerId, now, true);
-    }
+    const damage = itemDefinition.damage ?? 1;
+    this.damageEnemy(target, damage, player, now, itemDefinition.displayName);
 
     this.broadcastCombatEvent(
-      "basic",
+      "weapon",
       player.playerId,
       target.enemyId,
       target.x,
       target.y,
       damage,
-      combat.basicName,
-      combat.effectColor
+      itemDefinition.displayName,
+      colorForItem(itemDefinition),
+      activeItem.itemDefinitionId as ItemDefinitionId
     );
   }
 
-  private handleSpecialAbility(playerId: string, request: CombatRequest): void {
-    const player = this.state.players.get(playerId);
-    const now = Date.now();
-
-    if (!player || !canFight(player)) {
-      return;
-    }
-
-    const playerClass = player.className as PlayerClass;
-    const combat = CLASS_COMBAT_METADATA[playerClass];
-
-    if (now < player.specialCooldownUntil) {
-      return;
-    }
-
-    player.specialCooldownUntil = now + combat.specialCooldownMs;
-
-    if (playerClass === "developer") {
-      const target = this.resolveEnemyTarget(player, request, combat.specialRange, now);
-      if (target) {
-        const damage = this.calculatePlayerDamage(player, target, combat.specialDamage, now);
-        this.damageEnemy(target, damage, player, now, combat.specialName);
-        this.broadcastCombatEvent("special", player.playerId, target.enemyId, target.x, target.y, damage, combat.specialName, combat.effectColor);
-      }
-      return;
-    }
-
-    if (playerClass === "senior developer") {
-      this.applyBuffAround(player, "rule-shield", combat.specialRange, now, 35);
-      this.broadcastCombatEvent("shield", player.playerId, player.playerId, player.x, player.y, 35, combat.specialName, combat.effectColor);
-      return;
-    }
-
-    if (playerClass === "business analyst") {
-      const target = this.resolveEnemyTarget(player, request, combat.specialRange, now);
-      if (target) {
-        this.markEnemy(target, player.playerId, now, true);
-        const damage = target.type === "scope-blob"
-          ? Math.round(combat.specialDamage * 1.5)
-          : combat.specialDamage;
-        this.damageEnemy(target, damage, player, now, combat.specialName);
-
-        if (target.type === "scope-blob") {
-          this.spawnScopeShards(target);
-        }
-
-        this.broadcastCombatEvent("mark", player.playerId, target.enemyId, target.x, target.y, damage, combat.specialName, combat.effectColor);
-      }
-      return;
-    }
-
-    if (playerClass === "senior business analyst") {
-      const enemies = this.enemiesNear(player, combat.specialRange).slice(0, 5);
-      enemies.forEach((enemy) => {
-        this.markEnemy(enemy, player.playerId, now, true);
-        this.damageEnemy(enemy, combat.specialDamage, player, now, combat.specialName);
-      });
-      this.applyBuffAround(player, "clarity", BASE_ASSIST_RANGE, now, 0);
-      this.broadcastCombatEvent("mark", player.playerId, player.playerId, player.x, player.y, enemies.length, combat.specialName, combat.effectColor);
-      return;
-    }
-
-    if (playerClass === "product owner") {
-      this.applyBuffAround(player, "take-the-hit", combat.specialRange, now, 24);
-      this.broadcastCombatEvent("shield", player.playerId, player.playerId, player.x, player.y, 24, combat.specialName, combat.effectColor);
-      return;
-    }
-
-    if (playerClass === "senior product owner") {
-      this.applyBuffAround(player, "department-rally", combat.specialRange, now, 18);
-      this.broadcastCombatEvent("buff", player.playerId, player.playerId, player.x, player.y, 18, combat.specialName, combat.effectColor);
-      return;
-    }
-
-    if (playerClass === "architect") {
-      const enemies = this.enemiesNear(player, combat.specialRange);
-      enemies.forEach((enemy) => {
-        const damage = this.calculatePlayerDamage(player, enemy, combat.specialDamage, now);
-        this.damageEnemy(enemy, damage, player, now, combat.specialName);
-      });
-      this.applyBuffAround(player, "platform-zone", combat.specialRange, now, 14);
-      this.broadcastCombatEvent("special", player.playerId, player.playerId, player.x, player.y, enemies.length, combat.specialName, combat.effectColor);
-    }
-  }
-
-  private resolveEnemyTarget(
+  private resolveWeaponTarget(
     player: WulandPlayerSchema,
     request: CombatRequest,
-    range: number,
-    now: number
+    itemDefinition: ItemDefinition
   ): WulandEnemySchema | null {
-    const effectiveRange = hasNearbyClass(player, this.state.players, ["senior business analyst"], 220)
-      ? range + 24
-      : range;
+    const range = itemDefinition.range ?? 0;
 
     if (request.targetEnemyId) {
       const requested = this.state.enemies.get(request.targetEnemyId);
 
-      if (requested?.alive && distance(player, requested) <= effectiveRange) {
+      if (
+        requested?.alive &&
+        distance(player, requested) <= range &&
+        (itemDefinition.attackShape !== "arc" || isInFrontArc(player, requested, request.direction ?? player.direction))
+      ) {
         return requested;
       }
     }
@@ -721,77 +738,25 @@ export class WulandRoom extends Room<WulandRoomState> {
       const dy = enemy.y - player.y;
       const distanceToEnemy = Math.hypot(dx, dy);
 
-      if (distanceToEnemy > effectiveRange) {
+      if (distanceToEnemy > range) {
         return;
       }
 
       const dot = distanceToEnemy > 0
         ? (dx / distanceToEnemy) * facing.x + (dy / distanceToEnemy) * facing.y
         : 1;
-      const markedPriority = enemy.markedUntil > now ? -35 : 0;
 
-      if (dot >= BASIC_FACING_DOT && distanceToEnemy + markedPriority < bestDistance) {
-        bestDistance = distanceToEnemy + markedPriority;
+      if (
+        (itemDefinition.attackShape !== "arc" || dot >= BASIC_FACING_DOT) &&
+        dot >= (itemDefinition.attackShape === "projectile" ? Math.cos((110 * Math.PI) / 180) : BASIC_FACING_DOT) &&
+        distanceToEnemy < bestDistance
+      ) {
+        bestDistance = distanceToEnemy;
         best = enemy;
       }
     });
 
-    return best ?? nearestAliveEnemy(player, this.state.enemies, effectiveRange);
-  }
-
-  private calculatePlayerDamage(
-    player: WulandPlayerSchema,
-    enemy: WulandEnemySchema,
-    baseDamage: number,
-    now: number
-  ): number {
-    let damage = baseDamage;
-    const playerClass = player.className as PlayerClass;
-
-    if (
-      playerClass === "developer" &&
-      (enemy.type === "bug" || enemy.type === "task-slime" || enemy.type === "broken-bot")
-    ) {
-      damage += 7;
-    }
-
-    if (playerClass === "architect" && enemy.type === "legacy-system-golem") {
-      damage += 10;
-    }
-
-    if (
-      playerClass === "developer" &&
-      enemy.markedUntil > now &&
-      this.state.players.get(enemy.markedBy)?.className === "business analyst"
-    ) {
-      damage *= MARK_DAMAGE_MULTIPLIER;
-    }
-
-    if (enemy.weakenedUntil > now) {
-      damage *= 1.18;
-    }
-
-    if (hasBuff(player, "department-rally", now)) {
-      damage *= 1.2;
-    }
-
-    return Math.max(1, Math.round(damage));
-  }
-
-  private markEnemy(
-    enemy: WulandEnemySchema,
-    playerId: string,
-    now: number,
-    weaken: boolean
-  ): void {
-    enemy.markedBy = playerId;
-    enemy.markedUntil = now + MARK_DURATION_MS;
-    enemy.weakenedUntil = weaken ? now + WEAKEN_DURATION_MS : enemy.weakenedUntil;
-    const player = this.state.players.get(playerId);
-
-    if (player) {
-      player.markedTargets = enemy.enemyId;
-    }
+    return best;
   }
 
   private damageEnemy(
@@ -833,33 +798,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       return;
     }
 
-    let damage = amount;
-    const playerClass = player.className as PlayerClass;
-
-    if (playerClass === "senior developer") {
-      damage *= 0.86;
-    }
-
-    if (
-      playerClass === "product owner" &&
-      hasNearbyClass(player, this.state.players, ["business analyst", "senior business analyst", "developer"], 210)
-    ) {
-      damage *= 0.84;
-    }
-
-    if (hasBuff(player, "rule-shield", now)) {
-      damage *= 0.72;
-    }
-
-    if (hasBuff(player, "take-the-hit", now) || hasBuff(player, "department-rally", now)) {
-      damage *= 0.82;
-    }
-
-    if (hasBuff(player, "platform-zone", now)) {
-      damage *= 0.88;
-    }
-
-    const rounded = Math.max(1, Math.round(damage));
+    const rounded = Math.max(1, Math.round(amount));
     const shieldDamage = Math.min(player.shield, rounded);
     player.shield = Math.max(0, player.shield - shieldDamage);
     const hpDamage = rounded - shieldDamage;
@@ -878,50 +817,155 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.broadcastCombatEvent("player-defeated", sourceId, player.playerId, player.x, player.y, 0, "defeated", "#ff8787");
   }
 
-  private enemiesNear(position: WorldPosition, range: number): WulandEnemySchema[] {
-    const enemies: WulandEnemySchema[] = [];
+  private selectHotbarSlot(playerId: string, slotIndex: number): void {
+    const player = this.state.players.get(playerId);
 
-    this.state.enemies.forEach((enemy) => {
-      if (enemy.alive && distance(position, enemy) <= range) {
-        enemies.push(enemy);
-      }
-    });
-
-    return enemies.sort((a, b) => distance(position, a) - distance(position, b));
-  }
-
-  private applyBuffAround(
-    caster: WulandPlayerSchema,
-    buff: BuffType,
-    range: number,
-    now: number,
-    shield: number
-  ): void {
-    const duration = caster.className === "senior product owner"
-      ? BUFF_DURATION_MS + 1300
-      : BUFF_DURATION_MS;
-
-    this.state.players.forEach((player) => {
-      if (!canFight(player) || distance(caster, player) > range) {
-        return;
-      }
-
-      player.activeBuffs = setBuff(player.activeBuffs, buff, now + duration);
-      player.shield = Math.min(80, Math.max(player.shield, shield));
-    });
-  }
-
-  private spawnScopeShards(scopeBlob: WulandEnemySchema): void {
-    for (let index = 0; index < 2; index += 1) {
-      this.dynamicEnemyCounter += 1;
-      const offset = index === 0 ? -34 : 34;
-      const enemyId = `scope-shard-${this.dynamicEnemyCounter}`;
-      this.state.enemies.set(
-        enemyId,
-        enemyFromSpawn(enemyId, "task-slime", scopeBlob.x + offset, scopeBlob.y + 18)
-      );
+    if (!player || !player.online) {
+      return;
     }
 
+    player.selectedHotbarSlot = normalizeHotbarSlot(slotIndex);
+    this.persistPlayer(player);
+  }
+
+  private moveInventoryItem(playerId: string, fromSlotIndex: number, toSlotIndex: number): void {
+    const player = this.state.players.get(playerId);
+
+    if (!player || !player.online || fromSlotIndex === toSlotIndex) {
+      return;
+    }
+
+    const fromSlot = getInventorySlot(player, fromSlotIndex);
+    const toSlot = getInventorySlot(player, toSlotIndex);
+
+    if (!fromSlot || !toSlot) {
+      return;
+    }
+
+    const fromRecord = slotRecordFromSchema(fromSlot);
+    const toRecord = slotRecordFromSchema(toSlot);
+    applySlotRecord(fromSlot, { ...toRecord, slotIndex: fromSlotIndex });
+    applySlotRecord(toSlot, { ...fromRecord, slotIndex: toSlotIndex });
+    this.persistPlayer(player);
+  }
+
+  private discardInventoryItem(playerId: string, slotIndex: number): void {
+    const player = this.state.players.get(playerId);
+
+    if (!player || !player.online) {
+      return;
+    }
+
+    const slot = getInventorySlot(player, slotIndex);
+    const item = slot ? slotRecordFromSchema(slot) : null;
+
+    if (!slot || !item?.itemDefinitionId) {
+      return;
+    }
+
+    const dropPosition = clampWorldPosition({
+      x: player.x + vectorForDirection(player.direction).x * DROP_OFFSET,
+      y: player.y + vectorForDirection(player.direction).y * DROP_OFFSET
+    });
+    const droppedItem = droppedItemFromRecord({
+      droppedItemId: `drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      itemDefinitionId: item.itemDefinitionId,
+      itemInstanceId: item.itemInstanceId,
+      quantity: item.quantity,
+      mapId: WULAND_MAP_ID,
+      x: dropPosition.x,
+      y: dropPosition.y,
+      droppedByPlayerId: player.playerId,
+      droppedAt: new Date().toISOString()
+    });
+
+    clearSlot(slot);
+    this.state.droppedItems.set(droppedItem.droppedItemId, droppedItem);
+    this.playerStore.upsertDroppedItem(recordFromDroppedItem(droppedItem));
+    this.persistPlayer(player);
+    this.broadcastCombatEvent("drop", player.playerId, droppedItem.droppedItemId, droppedItem.x, droppedItem.y, 0, "dropped", "#ffd8a8", item.itemDefinitionId);
+    this.updateCounts();
+  }
+
+  private useSelectedItem(playerId: string): void {
+    const player = this.state.players.get(playerId);
+
+    if (!player || !canFight(player)) {
+      return;
+    }
+
+    const slot = getInventorySlot(player, player.selectedHotbarSlot);
+    const item = slot ? slotRecordFromSchema(slot) : null;
+
+    if (!slot || !item?.itemDefinitionId) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Select an item", "#ffd8a8");
+      return;
+    }
+
+    const definition = ITEM_DEFINITIONS[item.itemDefinitionId];
+
+    if (definition.itemType !== "consumable" || !definition.healAmount) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Not usable", "#ffd8a8");
+      return;
+    }
+
+    const before = player.hp;
+    player.hp = Math.min(player.maxHp, player.hp + definition.healAmount);
+    slot.quantity -= 1;
+
+    if (slot.quantity <= 0) {
+      clearSlot(slot);
+    }
+
+    this.persistPlayer(player);
+    this.broadcastCombatEvent(
+      "consume",
+      player.playerId,
+      player.playerId,
+      player.x,
+      player.y,
+      player.hp - before,
+      `+${player.hp - before}`,
+      "#91f2bd",
+      item.itemDefinitionId
+    );
+  }
+
+  private pickupItem(playerId: string, requestedDroppedItemId?: string): void {
+    const player = this.state.players.get(playerId);
+
+    if (!player || !player.online || player.sleeping) {
+      return;
+    }
+
+    const droppedItem = requestedDroppedItemId
+      ? this.state.droppedItems.get(requestedDroppedItemId)
+      : nearestDroppedItem(player, this.state.droppedItems, PICKUP_RANGE);
+
+    if (!droppedItem || distance(player, droppedItem) > PICKUP_RANGE) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "No item nearby", "#ffd8a8");
+      return;
+    }
+
+    if (!addItemToInventory(player, recordFromDroppedItem(droppedItem))) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Inventory full", "#ffd8a8");
+      return;
+    }
+
+    this.state.droppedItems.delete(droppedItem.droppedItemId);
+    this.playerStore.removeDroppedItem(droppedItem.droppedItemId);
+    this.persistPlayer(player);
+    this.broadcastCombatEvent(
+      "pickup",
+      player.playerId,
+      droppedItem.droppedItemId,
+      player.x,
+      player.y,
+      0,
+      `picked up ${ITEM_DEFINITIONS[droppedItem.itemDefinitionId as ItemDefinitionId].displayName}`,
+      "#91f2bd",
+      droppedItem.itemDefinitionId as ItemDefinitionId
+    );
     this.updateCounts();
   }
 
@@ -949,7 +993,8 @@ export class WulandRoom extends Room<WulandRoomState> {
     y: number,
     value: number,
     text: string,
-    color: string
+    color: string,
+    itemDefinitionId?: ItemDefinitionId
   ): void {
     this.combatEventCounter += 1;
     this.broadcast("combatEvent", {
@@ -961,7 +1006,8 @@ export class WulandRoom extends Room<WulandRoomState> {
       y,
       value,
       text,
-      color
+      color,
+      itemDefinitionId
     } satisfies CombatEvent);
   }
 
@@ -1042,6 +1088,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.state.sleepingPlayers = sleepingPlayers;
     this.state.totalEnemies = totalEnemies;
     this.state.aliveEnemies = aliveEnemies;
+    this.state.totalDroppedItems = this.state.droppedItems.size;
   }
 }
 
@@ -1094,7 +1141,7 @@ const applyProfileToSchema = (
   player.outfitColor = profile.cosmetics.outfitColor;
   player.accessory = profile.cosmetics.accessory;
   player.spriteVariant = profile.cosmetics.spriteVariant;
-  player.role = CLASS_COMBAT_METADATA[profile.class].role;
+  player.role = CLASS_METADATA[profile.class].futureRole;
 };
 
 const resetPlayerCombat = (player: WulandPlayerSchema): void => {
@@ -1151,75 +1198,193 @@ const vectorForDirection = (direction: Direction): WorldPosition => {
   return { x: 0, y: 1 };
 };
 
-const nearestAliveEnemy = (
+const isInFrontArc = (
+  player: WulandPlayerSchema,
+  target: WorldPosition,
+  direction: Direction
+): boolean => {
+  const dx = target.x - player.x;
+  const dy = target.y - player.y;
+  const length = Math.hypot(dx, dy);
+
+  if (length <= 0) {
+    return true;
+  }
+
+  const facing = vectorForDirection(direction);
+  return (dx / length) * facing.x + (dy / length) * facing.y >= BASIC_FACING_DOT;
+};
+
+const normalizeHotbarSlot = (slotIndex: unknown): number =>
+  typeof slotIndex === "number" &&
+  Number.isInteger(slotIndex) &&
+  slotIndex >= 0 &&
+  slotIndex < HOTBAR_SLOT_COUNT
+    ? slotIndex
+    : 0;
+
+const slotRecordFromSchema = (slot: WulandInventorySlotSchema): InventorySlotState => ({
+  slotIndex: normalizeHotbarSlot(slot.slotIndex),
+  itemDefinitionId: slot.itemDefinitionId as InventorySlotState["itemDefinitionId"],
+  itemInstanceId: slot.itemInstanceId,
+  quantity: slot.quantity
+});
+
+const applySlotRecord = (
+  slot: WulandInventorySlotSchema,
+  record: InventorySlotState
+): void => {
+  slot.slotIndex = normalizeHotbarSlot(record.slotIndex);
+  slot.itemDefinitionId = record.itemDefinitionId;
+  slot.itemInstanceId = record.itemInstanceId;
+  slot.quantity = record.quantity;
+};
+
+const clearSlot = (slot: WulandInventorySlotSchema): void => {
+  slot.itemDefinitionId = "";
+  slot.itemInstanceId = "";
+  slot.quantity = 0;
+};
+
+const getInventorySlot = (
+  player: WulandPlayerSchema,
+  slotIndex: number
+): WulandInventorySlotSchema | undefined =>
+  player.inventory.find((slot) => slot.slotIndex === slotIndex);
+
+const inventorySlotAt = (
+  player: WulandPlayerSchema,
+  slotIndex: number
+): InventorySlotState | null => {
+  const slot = getInventorySlot(player, slotIndex);
+  const record = slot ? slotRecordFromSchema(slot) : null;
+  return record?.itemDefinitionId ? record : null;
+};
+
+const applyInventoryToSchema = (
+  player: WulandPlayerSchema,
+  inventory: InventorySlotState[] | undefined,
+  seedPrefix: string
+): void => {
+  const source = normalizeInventory(inventory, seedPrefix);
+  player.inventory.clear();
+  source.forEach((slot) => {
+    const slotSchema = new WulandInventorySlotSchema();
+    applySlotRecord(slotSchema, slot);
+    player.inventory.push(slotSchema);
+  });
+};
+
+const inventoryFromSchema = (player: WulandPlayerSchema): InventorySlotState[] =>
+  Array.from({ length: HOTBAR_SLOT_COUNT }, (_value, slotIndex) => {
+    const slot = getInventorySlot(player, slotIndex);
+    return slot
+      ? slotRecordFromSchema(slot)
+      : {
+          slotIndex,
+          itemDefinitionId: "",
+          itemInstanceId: "",
+          quantity: 0
+        };
+  });
+
+const addItemToInventory = (
+  player: WulandPlayerSchema,
+  item: DroppedItemNetworkState
+): boolean => {
+  const definition = ITEM_DEFINITIONS[item.itemDefinitionId];
+
+  if (definition.stackable) {
+    const stack = player.inventory.find((slot) =>
+      slot.itemDefinitionId === item.itemDefinitionId &&
+      slot.quantity > 0 &&
+      slot.quantity < definition.maxStack
+    );
+
+    if (stack) {
+      const room = definition.maxStack - stack.quantity;
+      const moved = Math.min(room, item.quantity);
+      stack.quantity += moved;
+
+      if (moved >= item.quantity) {
+        return true;
+      }
+    }
+  }
+
+  const emptySlot = player.inventory.find((slot) => !slot.itemDefinitionId);
+
+  if (!emptySlot) {
+    return false;
+  }
+
+  emptySlot.itemDefinitionId = item.itemDefinitionId;
+  emptySlot.itemInstanceId = item.itemInstanceId;
+  emptySlot.quantity = Math.min(item.quantity, definition.maxStack);
+  return true;
+};
+
+const nearestDroppedItem = (
   position: WorldPosition,
-  enemies: MapSchema<WulandEnemySchema>,
+  droppedItems: MapSchema<WulandDroppedItemSchema>,
   range: number
-): WulandEnemySchema | null => {
-  let best: WulandEnemySchema | null = null;
+): WulandDroppedItemSchema | null => {
+  let best: WulandDroppedItemSchema | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
 
-  enemies.forEach((enemy) => {
-    const distanceToEnemy = distance(position, enemy);
+  droppedItems.forEach((item) => {
+    const distanceToItem = distance(position, item);
 
-    if (enemy.alive && distanceToEnemy <= range && distanceToEnemy < bestDistance) {
-      best = enemy;
-      bestDistance = distanceToEnemy;
+    if (item.mapId === WULAND_MAP_ID && distanceToItem <= range && distanceToItem < bestDistance) {
+      best = item;
+      bestDistance = distanceToItem;
     }
   });
 
   return best;
 };
 
-const hasNearbyClass = (
-  player: WulandPlayerSchema,
-  players: MapSchema<WulandPlayerSchema>,
-  classNames: PlayerClass[],
-  range: number
-): boolean => {
-  let found = false;
-
-  players.forEach((other) => {
-    if (
-      other.playerId !== player.playerId &&
-      canFight(other) &&
-      classNames.includes(other.className as PlayerClass) &&
-      distance(player, other) <= range
-    ) {
-      found = true;
-    }
-  });
-
-  return found;
+const droppedItemFromRecord = (record: DroppedItemNetworkState): WulandDroppedItemSchema => {
+  const droppedItem = new WulandDroppedItemSchema();
+  droppedItem.droppedItemId = record.droppedItemId;
+  droppedItem.itemDefinitionId = record.itemDefinitionId;
+  droppedItem.itemInstanceId = record.itemInstanceId;
+  droppedItem.quantity = record.quantity;
+  droppedItem.mapId = record.mapId || WULAND_MAP_ID;
+  droppedItem.x = record.x;
+  droppedItem.y = record.y;
+  droppedItem.droppedByPlayerId = record.droppedByPlayerId;
+  droppedItem.droppedAt = record.droppedAt;
+  return droppedItem;
 };
 
-const parseBuffs = (activeBuffs: string): Array<{ type: BuffType; until: number }> =>
-  activeBuffs
-    .split("|")
-    .filter(Boolean)
-    .map((entry) => {
-      const [type, until] = entry.split(":");
-      return {
-        type: type as BuffType,
-        until: Number.parseInt(until ?? "0", 10)
-      };
-    })
-    .filter((entry) => Number.isFinite(entry.until));
+const recordFromDroppedItem = (item: WulandDroppedItemSchema): DroppedItemNetworkState => ({
+  droppedItemId: item.droppedItemId,
+  itemDefinitionId: item.itemDefinitionId as ItemDefinitionId,
+  itemInstanceId: item.itemInstanceId,
+  quantity: item.quantity,
+  mapId: item.mapId,
+  x: item.x,
+  y: item.y,
+  droppedByPlayerId: item.droppedByPlayerId,
+  droppedAt: item.droppedAt
+});
 
-const serializeBuffs = (buffs: Array<{ type: BuffType; until: number }>): string =>
-  buffs.map((buff) => `${buff.type}:${buff.until}`).join("|");
+const colorForItem = (itemDefinition: ItemDefinition): string => {
+  if (itemDefinition.itemDefinitionId === "sword") {
+    return "#f8f9fa";
+  }
 
-const pruneBuffs = (activeBuffs: string, now: number): string =>
-  serializeBuffs(parseBuffs(activeBuffs).filter((buff) => buff.until > now));
+  if (itemDefinition.itemDefinitionId === "magic-wand") {
+    return "#b197fc";
+  }
 
-const setBuff = (activeBuffs: string, type: BuffType, until: number): string => {
-  const buffs = parseBuffs(activeBuffs).filter((buff) => buff.type !== type);
-  buffs.push({ type, until });
-  return serializeBuffs(buffs);
+  if (itemDefinition.itemDefinitionId === "rock") {
+    return "#ced4da";
+  }
+
+  return "#91f2bd";
 };
-
-const hasBuff = (player: WulandPlayerSchema, type: BuffType, now: number): boolean =>
-  parseBuffs(player.activeBuffs).some((buff) => buff.type === type && buff.until > now);
 
 const schemaFromRecord = (record: PlayerNetworkState): WulandPlayerSchema => {
   const player = new WulandPlayerSchema();
@@ -1245,6 +1410,8 @@ const schemaFromRecord = (record: PlayerNetworkState): WulandPlayerSchema => {
   player.lastSeenAt = record.lastSeenAt;
   player.lastSavedAt = record.lastSavedAt;
   resetPlayerCombat(player);
+  applyInventoryToSchema(player, record.inventory, record.playerId);
+  player.selectedHotbarSlot = normalizeHotbarSlot(record.selectedHotbarSlot);
   return player;
 };
 
@@ -1274,6 +1441,8 @@ const recordFromSchema = (player: WulandPlayerSchema): PlayerNetworkState => ({
   specialCooldownUntil: 0,
   activeBuffs: "",
   markedTargets: "",
+  inventory: inventoryFromSchema(player),
+  selectedHotbarSlot: normalizeHotbarSlot(player.selectedHotbarSlot),
   role: player.role,
   joinedAt: player.joinedAt,
   lastSeenAt: player.lastSeenAt,

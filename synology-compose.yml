@@ -2,9 +2,8 @@ name: wuland
 
 services:
   wuland-server:
-    # Pinned to this build so Synology is forced to pull the cleanup version
-    # instead of reusing an older cached "latest" image.
-    image: ghcr.io/kbekulov/wuland-server:053c0a725f3995c06aaecaae50cc2fb5bcb788cc
+    image: ghcr.io/kbekulov/wuland-server:latest
+    pull_policy: always
     container_name: wuland-server
     restart: unless-stopped
     ports:
@@ -14,9 +13,7 @@ services:
       PORT: 2567
       ALLOWED_ORIGINS: "https://wuland.bekulov.com"
       OFFLINE_PLAYER_TTL_HOURS: 168
-      # One-time cleanup requested on 2026-04-28. Set this back to "false"
-      # after the live world is clean if you want sleeping players to persist.
-      CLEAR_PLAYER_STORE_ON_START: "true"
+      CLEAR_PLAYER_STORE_ON_START: "false"
       # Temporary prototype setting: enemies remain visible/attackable but do
       # not wander, chase, or deal contact damage.
       ENEMY_AI_PAUSED: "true"

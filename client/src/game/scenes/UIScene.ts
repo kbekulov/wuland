@@ -2,6 +2,9 @@ import Phaser from "phaser";
 import {
   BUILDING_NAMES,
   CLASS_METADATA,
+  HOTBAR_SLOT_COUNT,
+  ITEM_DEFINITIONS,
+  type InventorySlotState,
   type LocalProgress,
   type PlayerProfile
 } from "@wuland/shared";
@@ -31,9 +34,18 @@ export class UIScene extends Phaser.Scene {
     localMaxHp: 0,
     localShield: 0,
     defeated: false,
-    specialCooldownUntil: 0,
-    specialName: ""
+    inventory: Array.from({ length: HOTBAR_SLOT_COUNT }, (_value, slotIndex) => ({
+      slotIndex,
+      itemDefinitionId: "",
+      itemInstanceId: "",
+      quantity: 0
+    })),
+    selectedHotbarSlot: 0,
+    activeItemName: "No item",
+    nearbyPickupName: "",
+    totalDroppedItems: 0
   };
+  private hotbarDrag?: { slotIndex: number; startX: number; startY: number; moved: boolean };
 
   constructor() {
     super("UIScene");
@@ -81,13 +93,13 @@ export class UIScene extends Phaser.Scene {
             <strong data-hud-hp></strong>
             <span class="meter-track"><span data-hud-hp-fill></span></span>
           </div>
-          <div class="hud-meter">
-            <span class="eyebrow">Special</span>
-            <strong data-hud-special></strong>
-            <span class="meter-track special"><span data-hud-special-fill></span></span>
-          </div>
         </div>
-        <div class="hud-hint">J attack | click enemy | K / Space special</div>
+        <div class="hud-hint">1-9 select | Space attack | E use | F pick up</div>
+        <div class="hud-active-item">
+          <span class="eyebrow">Selected</span>
+          <strong data-hud-active-item>No item</strong>
+          <span data-hud-pickup-hint></span>
+        </div>
         <div class="hud-network">
           <span class="status-dot"></span>
           <span data-hud-connection></span>
@@ -111,13 +123,16 @@ export class UIScene extends Phaser.Scene {
           <span data-hud-save></span>
         </div>
       </section>
+      <section class="hotbar-panel" data-hotbar-panel aria-label="Inventory hotbar">
+        <div class="hotbar-slots" data-hotbar-slots></div>
+      </section>
       <section class="help-overlay" data-help-overlay>
         <div>
           <button type="button" class="secondary small" data-action="close-help">Close</button>
           <h2>Controls</h2>
-          <p>WASD / arrows move. Click or tap the map to move there. Click or tap an enemy to attack.</p>
-          <p>J attacks. K or Space uses your special. On phones, use the D-pad plus Attack and Special buttons.</p>
-          <p>F3 toggles the debug line. Sleeping players stay visible but do not fight.</p>
+          <p>WASD / arrows move. Click or tap the map to move there. Click or tap an enemy to select it.</p>
+          <p>1-9 selects a hotbar slot. Space attacks with the selected weapon. E uses a selected consumable. F picks up nearby drops.</p>
+          <p>Drag hotbar items to swap slots. Drag outside the hotbar to drop an item on the map. Sleeping players stay visible but do not fight.</p>
         </div>
       </section>
     `;
@@ -134,6 +149,11 @@ export class UIScene extends Phaser.Scene {
     this.root
       .querySelector('[data-action="close-help"]')
       ?.addEventListener("click", () => this.toggleHelp(false));
+    this.root
+      .querySelector("[data-hotbar-slots]")
+      ?.addEventListener("pointerdown", (event) => this.handleHotbarPointerDown(event as PointerEvent));
+    window.addEventListener("pointermove", this.handleHotbarPointerMove);
+    window.addEventListener("pointerup", this.handleHotbarPointerUp);
   }
 
   private render(): void {
@@ -163,15 +183,19 @@ export class UIScene extends Phaser.Scene {
       "[data-hud-hp]",
       `${this.connection.localHp}/${this.connection.localMaxHp}${this.connection.defeated ? " respawning" : ""}`
     );
-    this.setText("[data-hud-special]", this.specialText());
+    this.setText("[data-hud-active-item]", this.connection.activeItemName);
+    this.setText(
+      "[data-hud-pickup-hint]",
+      this.connection.nearbyPickupName ? `F: pick up ${this.connection.nearbyPickupName}` : ""
+    );
     this.setText("[data-hud-enemies]", String(this.connection.totalEnemies));
     this.setText("[data-hud-alive-enemies]", String(this.connection.aliveEnemies));
     this.setText("[data-hud-shield]", String(this.connection.localShield));
     this.setMeter("[data-hud-hp-fill]", this.hpPercent());
-    this.setMeter("[data-hud-special-fill]", this.specialPercent());
     this.root.dataset.connectionStatus = this.connection.status;
     this.root.dataset.helpOpen = String(this.helpOpen);
     this.root.dataset.debugOpen = String(this.debugOpen);
+    this.renderHotbar();
 
     if (buildingList) {
       buildingList.innerHTML = BUILDING_NAMES.map((building) => {
@@ -226,24 +250,97 @@ export class UIScene extends Phaser.Scene {
     return Math.max(0, Math.min(1, this.connection.localHp / this.connection.localMaxHp));
   }
 
-  private specialPercent(): number {
-    const remaining = this.connection.specialCooldownUntil - Date.now();
+  private renderHotbar(): void {
+    const slots = this.root?.querySelector("[data-hotbar-slots]");
 
-    if (remaining <= 0) {
-      return 1;
+    if (!slots) {
+      return;
     }
 
-    return Math.max(0, Math.min(1, 1 - remaining / 10000));
+    slots.innerHTML = this.connection.inventory.map((slot) => {
+      const definition = slot.itemDefinitionId ? ITEM_DEFINITIONS[slot.itemDefinitionId] : null;
+      const selected = slot.slotIndex === this.connection.selectedHotbarSlot;
+      const count = definition?.stackable && slot.quantity > 1 ? `<span class="hotbar-count">${slot.quantity}</span>` : "";
+      return `
+        <button
+          type="button"
+          class="hotbar-slot${selected ? " selected" : ""}"
+          data-hotbar-slot="${slot.slotIndex}"
+          title="${definition ? `${definition.displayName}: ${definition.description}` : `Empty slot ${slot.slotIndex + 1}`}"
+        >
+          <span class="hotbar-number">${slot.slotIndex + 1}</span>
+          <strong>${definition?.iconText ?? ""}</strong>
+          <small>${definition?.displayName ?? "Empty"}</small>
+          ${count}
+        </button>
+      `;
+    }).join("");
   }
 
-  private specialText(): string {
-    const remaining = this.connection.specialCooldownUntil - Date.now();
-
-    if (remaining <= 0) {
-      return this.connection.specialName || "Ready";
+  private readonly handleHotbarPointerMove = (event: PointerEvent): void => {
+    if (!this.hotbarDrag) {
+      return;
     }
 
-    return `${Math.ceil(remaining / 1000)}s`;
+    const distance = Math.hypot(
+      event.clientX - this.hotbarDrag.startX,
+      event.clientY - this.hotbarDrag.startY
+    );
+    this.hotbarDrag.moved = this.hotbarDrag.moved || distance > 8;
+  };
+
+  private readonly handleHotbarPointerUp = (event: PointerEvent): void => {
+    const drag = this.hotbarDrag;
+
+    if (!drag) {
+      return;
+    }
+
+    this.hotbarDrag = undefined;
+    const target = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-hotbar-slot]");
+
+    if (!drag.moved) {
+      this.game.events.emit("wuland:selectHotbarSlot", drag.slotIndex);
+      return;
+    }
+
+    if (!target) {
+      this.game.events.emit("wuland:discardHotbarItem", drag.slotIndex);
+      return;
+    }
+
+    const toSlotIndex = Number.parseInt(target.dataset.hotbarSlot ?? "", 10);
+
+    if (Number.isInteger(toSlotIndex)) {
+      this.game.events.emit("wuland:moveHotbarItem", {
+        fromSlotIndex: drag.slotIndex,
+        toSlotIndex
+      });
+    }
+  };
+
+  private handleHotbarPointerDown(event: PointerEvent): void {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-hotbar-slot]");
+
+    if (!target) {
+      return;
+    }
+
+    event.preventDefault();
+    const slotIndex = Number.parseInt(target.dataset.hotbarSlot ?? "", 10);
+
+    if (!Number.isInteger(slotIndex)) {
+      return;
+    }
+
+    this.hotbarDrag = {
+      slotIndex,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false
+    };
   }
 
   private cleanup(): void {
@@ -251,6 +348,8 @@ export class UIScene extends Phaser.Scene {
     this.game.events.off("wuland:connectionUpdated", this.handleConnectionUpdated, this);
     this.game.events.off("wuland:toggleHelp", this.toggleHelp, this);
     this.game.events.off("wuland:toggleDebug", this.toggleDebug, this);
+    window.removeEventListener("pointermove", this.handleHotbarPointerMove);
+    window.removeEventListener("pointerup", this.handleHotbarPointerUp);
     this.root?.remove();
     this.root = undefined;
   }

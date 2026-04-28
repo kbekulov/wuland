@@ -1,5 +1,5 @@
 # WULAND Server
 
-This workspace is intentionally a placeholder in Phase 1.
+Node.js, TypeScript, Express, and Colyseus server for the WULAND multiplayer room.
 
-Multiplayer server functionality will be added in Phase 2.
+The server owns movement, player HP, enemies, 9-slot inventories, weapon attacks, dropped items, sleeping offline players, and prototype JSON persistence.

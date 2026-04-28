@@ -340,6 +340,11 @@ export type EnemyType =
 export type CombatEventType =
   | "basic"
   | "special"
+  | "weapon"
+  | "consume"
+  | "pickup"
+  | "drop"
+  | "notice"
   | "damage"
   | "shield"
   | "buff"
@@ -348,141 +353,8 @@ export type CombatEventType =
   | "player-defeated"
   | "respawn";
 
-export interface ClassCombatMetadata {
-  role: string;
-  teamMeaning: string;
-  basicName: string;
-  specialName: string;
-  passiveName: string;
-  passiveDescription: string;
-  basicDamage: number;
-  specialDamage: number;
-  basicRange: number;
-  specialRange: number;
-  basicCooldownMs: number;
-  specialCooldownMs: number;
-  effectColor: string;
-}
-
 export const PLAYER_MAX_HP = 120;
 export const PLAYER_RESPAWN_MS = 4200;
-export const BASIC_ATTACK_ARC_DEGREES = 85;
-export const MARK_DAMAGE_MULTIPLIER = 1.35;
-
-export const CLASS_COMBAT_METADATA: Record<PlayerClass, ClassCombatMetadata> = {
-  developer: {
-    role: "DPS / worker",
-    teamMeaning:
-      "Builds projects, codes, maintains automations, and fulfills expectations from BAs and POs.",
-    basicName: "Code Strike",
-    specialName: "Implement Feature",
-    passiveName: "Bug Crusher",
-    passiveDescription: "Deals extra damage to Bug, Task Slime, and Broken Bot enemies.",
-    basicDamage: 16,
-    specialDamage: 42,
-    basicRange: 280,
-    specialRange: 320,
-    basicCooldownMs: 480,
-    specialCooldownMs: 5200,
-    effectColor: "#3f8cff"
-  },
-  "senior developer": {
-    role: "tank / rules guardian",
-    teamMeaning:
-      "Decides edge cases, creates rules, verifies standards, handles difficult code, creates tools, and coaches developers.",
-    basicName: "Standards Strike",
-    specialName: "Rule Shield",
-    passiveName: "Stability Review",
-    passiveDescription: "Takes slightly less damage and shields nearby allies.",
-    basicDamage: 13,
-    specialDamage: 0,
-    basicRange: 225,
-    specialRange: 230,
-    basicCooldownMs: 560,
-    specialCooldownMs: 7800,
-    effectColor: "#0f6f8f"
-  },
-  "business analyst": {
-    role: "tactician / marker",
-    teamMeaning:
-      "Writes user stories, breaks big projects into smaller steps, manages developer progress, and talks to clients.",
-    basicName: "User Story Shot",
-    specialName: "Break Down Scope",
-    passiveName: "Developer Handoff",
-    passiveDescription: "Marked enemies take extra damage from Developers.",
-    basicDamage: 10,
-    specialDamage: 24,
-    basicRange: 300,
-    specialRange: 340,
-    basicCooldownMs: 520,
-    specialCooldownMs: 6500,
-    effectColor: "#facc15"
-  },
-  "senior business analyst": {
-    role: "senior tactician / coordinator",
-    teamMeaning:
-      "Coordinates complex requirements with more experience and keeps priorities legible.",
-    basicName: "Clarify Shot",
-    specialName: "Process Alignment",
-    passiveName: "Clear Objective",
-    passiveDescription: "Nearby allies gain a small range bonus.",
-    basicDamage: 12,
-    specialDamage: 14,
-    basicRange: 310,
-    specialRange: 285,
-    basicCooldownMs: 520,
-    specialCooldownMs: 7600,
-    effectColor: "#d6a83d"
-  },
-  "product owner": {
-    role: "protector / quest giver",
-    teamMeaning:
-      "Finds clients, agrees high-level projects, passes work to BAs, and takes the main hit when things go wrong.",
-    basicName: "Priority Command",
-    specialName: "Take the Hit",
-    passiveName: "Client Buffer",
-    passiveDescription: "Gains defense when near BAs, Senior BAs, or Developers.",
-    basicDamage: 12,
-    specialDamage: 0,
-    basicRange: 250,
-    specialRange: 235,
-    basicCooldownMs: 580,
-    specialCooldownMs: 8200,
-    effectColor: "#16a34a"
-  },
-  "senior product owner": {
-    role: "commander / morale leader",
-    teamMeaning:
-      "Coordinates Product Owners and rallies the department around the roadmap.",
-    basicName: "Roadmap Command",
-    specialName: "Department Rally",
-    passiveName: "Longer Rally",
-    passiveDescription: "Buffs last slightly longer.",
-    basicDamage: 13,
-    specialDamage: 0,
-    basicRange: 260,
-    specialRange: 275,
-    basicCooldownMs: 560,
-    specialCooldownMs: 9800,
-    effectColor: "#7c3aed"
-  },
-  architect: {
-    role: "system mage / engineer",
-    teamMeaning:
-      "Creates complex systems and platforms, integrates everyone's work, and pushes tooling innovation.",
-    basicName: "Blueprint Bolt",
-    specialName: "Platform Shift",
-    passiveName: "System Weakness",
-    passiveDescription: "Deals extra damage to Legacy System enemies.",
-    basicDamage: 15,
-    specialDamage: 28,
-    basicRange: 295,
-    specialRange: 260,
-    basicCooldownMs: 540,
-    specialCooldownMs: 7800,
-    effectColor: "#8d99ae"
-  }
-} as const;
 
 export interface EnemyDefinition {
   type: EnemyType;
@@ -665,6 +537,118 @@ export const WULAND_ENEMY_SPAWNS: EnemySpawnDefinition[] = [
   { id: "task-slime-2", type: "task-slime", x: 640, y: 1035, leashRadius: 170 }
 ];
 
+export const HOTBAR_SLOT_COUNT = 9;
+export const WULAND_MAP_ID = "wuland-village";
+
+export const ITEM_DEFINITION_IDS = ["sword", "magic-wand", "rock", "cake"] as const;
+export type ItemDefinitionId = (typeof ITEM_DEFINITION_IDS)[number];
+export type ItemType = "weapon" | "consumable" | "misc";
+export type WeaponType = "melee" | "magic" | "thrown";
+export type AttackShape = "arc" | "projectile";
+
+export interface ItemDefinition {
+  itemDefinitionId: ItemDefinitionId;
+  displayName: string;
+  itemType: ItemType;
+  iconText: string;
+  description: string;
+  stackable: boolean;
+  maxStack: number;
+  weaponType?: WeaponType;
+  healAmount?: number;
+  damage?: number;
+  range?: number;
+  attackShape?: AttackShape;
+}
+
+export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
+  sword: {
+    itemDefinitionId: "sword",
+    displayName: "Sword",
+    itemType: "weapon",
+    iconText: "SWD",
+    description: "A simple short-range melee weapon.",
+    stackable: false,
+    maxStack: 1,
+    weaponType: "melee",
+    damage: 22,
+    range: 70,
+    attackShape: "arc"
+  },
+  "magic-wand": {
+    itemDefinitionId: "magic-wand",
+    displayName: "Magic Wand",
+    itemType: "weapon",
+    iconText: "WND",
+    description: "Fires a readable medium-damage magic bolt.",
+    stackable: false,
+    maxStack: 1,
+    weaponType: "magic",
+    damage: 18,
+    range: 300,
+    attackShape: "projectile"
+  },
+  rock: {
+    itemDefinitionId: "rock",
+    displayName: "Rock",
+    itemType: "weapon",
+    iconText: "ROC",
+    description: "A suspiciously useful thrown placeholder weapon.",
+    stackable: false,
+    maxStack: 1,
+    weaponType: "thrown",
+    damage: 12,
+    range: 220,
+    attackShape: "projectile"
+  },
+  cake: {
+    itemDefinitionId: "cake",
+    displayName: "Cake",
+    itemType: "consumable",
+    iconText: "CAK",
+    description: "Restores a small amount of HP.",
+    stackable: true,
+    maxStack: 9,
+    healAmount: 32
+  }
+} as const;
+
+export interface InventorySlotState {
+  slotIndex: number;
+  itemDefinitionId: ItemDefinitionId | "";
+  itemInstanceId: string;
+  quantity: number;
+}
+
+export interface DroppedItemNetworkState {
+  droppedItemId: string;
+  itemDefinitionId: ItemDefinitionId;
+  itemInstanceId: string;
+  quantity: number;
+  mapId: string;
+  x: number;
+  y: number;
+  droppedByPlayerId: string;
+  droppedAt: string;
+}
+
+export interface HotbarSelectRequest {
+  slotIndex: number;
+}
+
+export interface InventoryMoveRequest {
+  fromSlotIndex: number;
+  toSlotIndex: number;
+}
+
+export interface InventorySlotRequest {
+  slotIndex: number;
+}
+
+export interface PickupItemRequest {
+  droppedItemId?: string;
+}
+
 export interface PlayerNetworkState {
   playerId: string;
   sessionId: string;
@@ -691,6 +675,8 @@ export interface PlayerNetworkState {
   specialCooldownUntil: number;
   activeBuffs: string;
   markedTargets: string;
+  inventory: InventorySlotState[];
+  selectedHotbarSlot: number;
   role: string;
   joinedAt: string;
   lastSeenAt: string;
@@ -730,6 +716,7 @@ export interface CombatEvent {
   value: number;
   text: string;
   color: string;
+  itemDefinitionId?: ItemDefinitionId;
 }
 
 export interface WulandJoinOptions {
@@ -787,8 +774,122 @@ export const isEnemyType = (value: unknown): value is EnemyType =>
     value
   );
 
+export const isItemDefinitionId = (value: unknown): value is ItemDefinitionId =>
+  isOneOf(ITEM_DEFINITION_IDS, value);
+
 export const isDirection = (value: unknown): value is Direction =>
   isOneOf(["down", "up", "left", "right"] as const, value);
+
+export const isValidHotbarSlotIndex = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isInteger(value) &&
+  value >= 0 &&
+  value < HOTBAR_SLOT_COUNT;
+
+export const isInventorySlotState = (value: unknown): value is InventorySlotState => {
+  if (!isRecord(value) || !isValidHotbarSlotIndex(value.slotIndex)) {
+    return false;
+  }
+
+  const hasItem = value.itemDefinitionId !== "";
+
+  return (
+    (value.itemDefinitionId === "" || isItemDefinitionId(value.itemDefinitionId)) &&
+    typeof value.itemInstanceId === "string" &&
+    isFiniteNumber(value.quantity) &&
+    value.quantity >= 0 &&
+    (!hasItem || (value.itemInstanceId.trim().length > 0 && value.quantity > 0))
+  );
+};
+
+export const createEmptyInventory = (): InventorySlotState[] =>
+  Array.from({ length: HOTBAR_SLOT_COUNT }, (_value, slotIndex) => ({
+    slotIndex,
+    itemDefinitionId: "",
+    itemInstanceId: "",
+    quantity: 0
+  }));
+
+export const createItemInstanceId = (
+  itemDefinitionId: ItemDefinitionId,
+  seed = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+): string => `${itemDefinitionId}-${seed}`;
+
+export const createStarterInventory = (seedPrefix = "starter"): InventorySlotState[] => {
+  const inventory = createEmptyInventory();
+  inventory[0] = {
+    slotIndex: 0,
+    itemDefinitionId: "rock",
+    itemInstanceId: createItemInstanceId("rock", `${seedPrefix}-rock`),
+    quantity: 1
+  };
+  inventory[1] = {
+    slotIndex: 1,
+    itemDefinitionId: "sword",
+    itemInstanceId: createItemInstanceId("sword", `${seedPrefix}-sword`),
+    quantity: 1
+  };
+  inventory[2] = {
+    slotIndex: 2,
+    itemDefinitionId: "magic-wand",
+    itemInstanceId: createItemInstanceId("magic-wand", `${seedPrefix}-wand`),
+    quantity: 1
+  };
+  return inventory;
+};
+
+export const normalizeInventory = (
+  value: unknown,
+  seedPrefix = "starter"
+): InventorySlotState[] => {
+  if (!Array.isArray(value)) {
+    return createStarterInventory(seedPrefix);
+  }
+
+  const inventory = createEmptyInventory();
+  value.filter(isInventorySlotState).forEach((slot) => {
+    const definition = slot.itemDefinitionId ? ITEM_DEFINITIONS[slot.itemDefinitionId] : null;
+    inventory[slot.slotIndex] = {
+      slotIndex: slot.slotIndex,
+      itemDefinitionId: definition ? slot.itemDefinitionId : "",
+      itemInstanceId: definition ? slot.itemInstanceId : "",
+      quantity: definition ? Math.min(Math.max(1, Math.floor(slot.quantity)), definition.maxStack) : 0
+    };
+  });
+
+  return inventory.some((slot) => slot.itemDefinitionId !== "")
+    ? inventory
+    : createStarterInventory(seedPrefix);
+};
+
+export const isHotbarSelectRequest = (value: unknown): value is HotbarSelectRequest =>
+  isRecord(value) && isValidHotbarSlotIndex(value.slotIndex);
+
+export const isInventoryMoveRequest = (value: unknown): value is InventoryMoveRequest =>
+  isRecord(value) &&
+  isValidHotbarSlotIndex(value.fromSlotIndex) &&
+  isValidHotbarSlotIndex(value.toSlotIndex);
+
+export const isInventorySlotRequest = (value: unknown): value is InventorySlotRequest =>
+  isRecord(value) && isValidHotbarSlotIndex(value.slotIndex);
+
+export const isPickupItemRequest = (value: unknown): value is PickupItemRequest =>
+  value === undefined ||
+  value === null ||
+  (isRecord(value) &&
+    (value.droppedItemId === undefined || typeof value.droppedItemId === "string"));
+
+export const isDroppedItemNetworkState = (value: unknown): value is DroppedItemNetworkState =>
+  isRecord(value) &&
+  isNonEmptyString(value.droppedItemId) &&
+  isItemDefinitionId(value.itemDefinitionId) &&
+  isNonEmptyString(value.itemInstanceId) &&
+  isFiniteNumber(value.quantity) &&
+  value.quantity > 0 &&
+  isNonEmptyString(value.mapId) &&
+  isValidWorldPosition({ x: value.x, y: value.y }) &&
+  typeof value.droppedByPlayerId === "string" &&
+  isNonEmptyString(value.droppedAt);
 
 export const isMovementInput = (value: unknown): value is MovementInput => {
   if (!isRecord(value)) {

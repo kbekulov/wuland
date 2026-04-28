@@ -344,6 +344,8 @@ export type CombatEventType =
   | "consume"
   | "pickup"
   | "drop"
+  | "gift"
+  | "shop"
   | "notice"
   | "damage"
   | "shield"
@@ -540,7 +542,17 @@ export const WULAND_ENEMY_SPAWNS: EnemySpawnDefinition[] = [
 export const HOTBAR_SLOT_COUNT = 9;
 export const WULAND_MAP_ID = "wuland-village";
 
-export const ITEM_DEFINITION_IDS = ["sword", "magic-wand", "rock", "cake"] as const;
+export const ITEM_DEFINITION_IDS = [
+  "sword",
+  "magic-wand",
+  "rock",
+  "cake",
+  "chocolate-cake",
+  "fruit-cake",
+  "honey-cake",
+  "cheese-cake",
+  "mystery-cake"
+] as const;
 export type ItemDefinitionId = (typeof ITEM_DEFINITION_IDS)[number];
 export type ItemType = "weapon" | "consumable" | "misc";
 export type WeaponType = "melee" | "magic" | "thrown";
@@ -556,9 +568,12 @@ export interface ItemDefinition {
   maxStack: number;
   weaponType?: WeaponType;
   healAmount?: number;
+  healAmountMin?: number;
+  healAmountMax?: number;
   damage?: number;
   range?: number;
   attackShape?: AttackShape;
+  giftable?: boolean;
 }
 
 export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
@@ -609,9 +624,110 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     description: "Restores a small amount of HP.",
     stackable: true,
     maxStack: 9,
-    healAmount: 32
+    healAmount: 32,
+    giftable: true
+  },
+  "chocolate-cake": {
+    itemDefinitionId: "chocolate-cake",
+    displayName: "Chocolate Cake",
+    itemType: "consumable",
+    iconText: "CHO",
+    description: "Rich morale restoration with a very practical amount of frosting.",
+    stackable: true,
+    maxStack: 9,
+    healAmount: 34,
+    giftable: true
+  },
+  "fruit-cake": {
+    itemDefinitionId: "fruit-cake",
+    displayName: "Fruit Cake",
+    itemType: "consumable",
+    iconText: "FRU",
+    description: "A light snack that restores a small amount of HP.",
+    stackable: true,
+    maxStack: 9,
+    healAmount: 22,
+    giftable: true
+  },
+  "honey-cake": {
+    itemDefinitionId: "honey-cake",
+    displayName: "Honey Cake",
+    itemType: "consumable",
+    iconText: "HNY",
+    description: "Sticky, bright, and surprisingly effective at patching morale.",
+    stackable: true,
+    maxStack: 9,
+    healAmount: 44,
+    giftable: true
+  },
+  "cheese-cake": {
+    itemDefinitionId: "cheese-cake",
+    displayName: "Cheese Cake",
+    itemType: "consumable",
+    iconText: "CHS",
+    description: "A dense recovery cake with questionable structural integrity.",
+    stackable: true,
+    maxStack: 9,
+    healAmount: 32,
+    giftable: true
+  },
+  "mystery-cake": {
+    itemDefinitionId: "mystery-cake",
+    displayName: "Mystery Cake",
+    itemType: "consumable",
+    iconText: "MYS",
+    description: "Restores a safe but unpredictable amount of HP. Probably cake.",
+    stackable: true,
+    maxStack: 9,
+    healAmount: 28,
+    healAmountMin: 12,
+    healAmountMax: 52,
+    giftable: true
   }
 } as const;
+
+export interface MerchantDefinition {
+  id: string;
+  displayName: string;
+  mapId: string;
+  x: number;
+  y: number;
+  interactionRange: number;
+  speechLines: string[];
+}
+
+export interface MerchantStockItem {
+  itemDefinitionId: ItemDefinitionId;
+  priceLabel: string;
+}
+
+export const WULAND_MERCHANT: MerchantDefinition = {
+  id: "wuland-traveling-merchant",
+  displayName: "Odd Cart Merchant",
+  mapId: WULAND_MAP_ID,
+  x: 720,
+  y: 650,
+  interactionRange: 92,
+  speechLines: [
+    "Fresh tools for tired heroes.",
+    "Need something sharp, shiny, or suspiciously useful?",
+    "Come closer, friend. WULAND problems need WULAND solutions.",
+    "A wand, a blade, or a rock. All proven in production.",
+    "Cakes restore morale. Mostly.",
+    "No refunds during incidents."
+  ]
+} as const;
+
+export const WULAND_MERCHANT_STOCK: MerchantStockItem[] = [
+  { itemDefinitionId: "sword", priceLabel: "0 WULAND coins" },
+  { itemDefinitionId: "magic-wand", priceLabel: "0 WULAND coins" },
+  { itemDefinitionId: "rock", priceLabel: "0 WULAND coins" },
+  { itemDefinitionId: "chocolate-cake", priceLabel: "free for prototype" },
+  { itemDefinitionId: "fruit-cake", priceLabel: "free for prototype" },
+  { itemDefinitionId: "honey-cake", priceLabel: "free for prototype" },
+  { itemDefinitionId: "cheese-cake", priceLabel: "free for prototype" },
+  { itemDefinitionId: "mystery-cake", priceLabel: "free for prototype" }
+] as const;
 
 export interface InventorySlotState {
   slotIndex: number;
@@ -647,6 +763,14 @@ export interface InventorySlotRequest {
 
 export interface PickupItemRequest {
   droppedItemId?: string;
+}
+
+export interface BuyItemRequest {
+  itemDefinitionId: ItemDefinitionId;
+}
+
+export interface GiftItemRequest {
+  targetPlayerId?: string;
 }
 
 export interface PlayerNetworkState {
@@ -777,6 +901,11 @@ export const isEnemyType = (value: unknown): value is EnemyType =>
 export const isItemDefinitionId = (value: unknown): value is ItemDefinitionId =>
   isOneOf(ITEM_DEFINITION_IDS, value);
 
+export const isCakeItemDefinitionId = (value: unknown): value is ItemDefinitionId =>
+  isItemDefinitionId(value) &&
+  ITEM_DEFINITIONS[value].itemType === "consumable" &&
+  Boolean(ITEM_DEFINITIONS[value].giftable);
+
 export const isDirection = (value: unknown): value is Direction =>
   isOneOf(["down", "up", "left", "right"] as const, value);
 
@@ -878,6 +1007,15 @@ export const isPickupItemRequest = (value: unknown): value is PickupItemRequest 
   value === null ||
   (isRecord(value) &&
     (value.droppedItemId === undefined || typeof value.droppedItemId === "string"));
+
+export const isBuyItemRequest = (value: unknown): value is BuyItemRequest =>
+  isRecord(value) && isItemDefinitionId(value.itemDefinitionId);
+
+export const isGiftItemRequest = (value: unknown): value is GiftItemRequest =>
+  value === undefined ||
+  value === null ||
+  (isRecord(value) &&
+    (value.targetPlayerId === undefined || typeof value.targetPlayerId === "string"));
 
 export const isDroppedItemNetworkState = (value: unknown): value is DroppedItemNetworkState =>
   isRecord(value) &&

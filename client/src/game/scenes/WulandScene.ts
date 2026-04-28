@@ -6,14 +6,17 @@ import {
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
   WULAND_WORLD,
+  WULAND_MERCHANT,
   clampWorldPosition,
   collidesWithWorld,
+  isCakeItemDefinitionId,
   type BuildingName,
   type CombatEvent,
   type Direction,
   type DroppedItemNetworkState,
   type EnemyNetworkState,
   type InventorySlotState,
+  type ItemDefinitionId,
   type LocalProgress,
   type MovementInput,
   type PlayerNetworkState,
@@ -53,6 +56,7 @@ interface CombatKeys {
   attack: Phaser.Input.Keyboard.Key;
   use: Phaser.Input.Keyboard.Key;
   pickup: Phaser.Input.Keyboard.Key;
+  gift: Phaser.Input.Keyboard.Key;
   hotbar: Phaser.Input.Keyboard.Key[];
 }
 
@@ -110,6 +114,8 @@ export interface WulandConnectionState {
   selectedHotbarSlot: number;
   activeItemName: string;
   nearbyPickupName: string;
+  nearMerchant: boolean;
+  nearbyGiftPlayerName: string;
   totalDroppedItems: number;
 }
 
@@ -154,12 +160,16 @@ export class WulandScene extends Phaser.Scene {
     selectedHotbarSlot: 0,
     activeItemName: "No item",
     nearbyPickupName: "",
+    nearMerchant: false,
+    nearbyGiftPlayerName: "",
     totalDroppedItems: 0
   };
   private selectedEnemyId = "";
   private virtualInput: MovementInput = { ...ZERO_INPUT };
   private clickTarget?: Phaser.Math.Vector2;
   private destinationMarker?: Phaser.GameObjects.Arc;
+  private merchantBubble?: Phaser.GameObjects.Text;
+  private merchantSpeechTimer?: Phaser.Time.TimerEvent;
   private targetStartedAt = 0;
   private lastTargetDistance = Number.POSITIVE_INFINITY;
   private lastTargetProgressAt = 0;
@@ -220,6 +230,8 @@ export class WulandScene extends Phaser.Scene {
       selectedHotbarSlot: 0,
       activeItemName: "No item",
       nearbyPickupName: "",
+      nearMerchant: false,
+      nearbyGiftPlayerName: "",
       totalDroppedItems: 0
     };
 
@@ -242,6 +254,7 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.on("wuland:selectHotbarSlot", this.selectHotbarSlot, this);
     this.game.events.on("wuland:moveHotbarItem", this.moveHotbarItem, this);
     this.game.events.on("wuland:discardHotbarItem", this.discardHotbarItem, this);
+    this.game.events.on("wuland:buyMerchantItem", this.buyMerchantItem, this);
     window.addEventListener("blur", this.handleWindowBlur);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
 
@@ -258,7 +271,7 @@ export class WulandScene extends Phaser.Scene {
 
     if (localPlayer) {
       this.updateClickTarget(localPlayer, time);
-      this.updateNearbyPickup(localPlayer);
+      this.updateInteractionContext(localPlayer);
       this.updateVisitedBuildings(localPlayer);
 
       if (time - this.lastProgressSave > 650) {
@@ -332,6 +345,7 @@ export class WulandScene extends Phaser.Scene {
 
     BUILDING_LAYOUT.forEach((building) => this.drawBuilding(building));
     TREE_OBSTACLES.forEach((tree) => this.drawTree(tree.x, tree.y));
+    this.drawMerchant();
   }
 
   private drawGround(): void {
@@ -438,6 +452,82 @@ export class WulandScene extends Phaser.Scene {
     this.add.circle(x + 20, y + 12, 24, 0x2f8f3a).setDepth(11);
   }
 
+  private drawMerchant(): void {
+    const { x, y } = WULAND_MERCHANT;
+
+    this.add.ellipse(x + 8, y + 28, 138, 34, 0x000000, 0.18).setDepth(18);
+    this.add
+      .rectangle(x + 38, y + 6, 78, 48, 0x5b3b26, 0.98)
+      .setStrokeStyle(3, 0x281914)
+      .setDepth(24);
+    this.add.rectangle(x + 38, y - 24, 86, 18, 0xc7923e, 1).setDepth(26);
+    this.add.circle(x + 4, y + 33, 13, 0x2a1d19, 1).setDepth(27);
+    this.add.circle(x + 73, y + 33, 13, 0x2a1d19, 1).setDepth(27);
+    this.add.circle(x + 4, y + 33, 6, 0xc7a46b, 1).setDepth(28);
+    this.add.circle(x + 73, y + 33, 6, 0xc7a46b, 1).setDepth(28);
+    this.add.rectangle(x + 89, y - 2, 18, 64, 0x7a5234, 1).setDepth(23);
+    this.add.circle(x - 34, y - 13, 24, 0x2b1c2f, 1).setDepth(30);
+    this.add.circle(x - 34, y - 9, 16, 0xd9b384, 1).setDepth(31);
+    this.add
+      .triangle(x - 34, y + 38, -33, -30, 33, -30, 0, 38, 0x39213f, 1)
+      .setStrokeStyle(3, 0x1e1224)
+      .setDepth(29);
+    this.add.rectangle(x - 62, y + 4, 22, 38, 0x765332, 1).setDepth(28);
+    this.add
+      .text(x + 38, y - 51, "Odd Cart", {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "13px",
+        color: "#fff8e7",
+        backgroundColor: "rgba(34, 21, 16, 0.82)",
+        padding: { x: 7, y: 3 }
+      })
+      .setOrigin(0.5)
+      .setDepth(35);
+
+    this.merchantSpeechTimer = this.time.addEvent({
+      delay: 5200,
+      loop: true,
+      callback: () => this.showMerchantSpeechIfNearby()
+    });
+  }
+
+  private showMerchantSpeechIfNearby(): void {
+    const localPlayer = this.latestPlayers.get(this.profile.playerId);
+
+    if (!localPlayer || distanceBetween(localPlayer, WULAND_MERCHANT) > 240) {
+      return;
+    }
+
+    const line = Phaser.Utils.Array.GetRandom(Array.from(WULAND_MERCHANT.speechLines));
+
+    this.merchantBubble?.destroy();
+    this.merchantBubble = this.add
+      .text(WULAND_MERCHANT.x + 34, WULAND_MERCHANT.y - 92, line, {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "13px",
+        color: "#fff8e7",
+        backgroundColor: "rgba(27, 18, 24, 0.88)",
+        align: "center",
+        padding: { x: 8, y: 5 },
+        wordWrap: { width: 240, useAdvancedWrap: true }
+      })
+      .setOrigin(0.5)
+      .setDepth(88);
+
+    this.tweens.add({
+      targets: this.merchantBubble,
+      y: this.merchantBubble.y - 10,
+      alpha: 0,
+      delay: 2300,
+      duration: 700,
+      ease: "Sine.easeIn",
+      onComplete: () => {
+        this.merchantBubble?.destroy();
+        this.merchantBubble = undefined;
+      }
+    });
+  }
+
   private createInput(): void {
     if (!this.input.keyboard) {
       throw new Error("Keyboard input is unavailable.");
@@ -454,6 +544,7 @@ export class WulandScene extends Phaser.Scene {
       attack: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
       use: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E),
       pickup: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F),
+      gift: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G),
       hotbar: [
         Phaser.Input.Keyboard.KeyCodes.ONE,
         Phaser.Input.Keyboard.KeyCodes.TWO,
@@ -494,7 +585,8 @@ export class WulandScene extends Phaser.Scene {
       <div class="mobile-actions" aria-label="Combat controls">
         <button type="button" data-mobile-action="attack">Attack</button>
         <button type="button" data-mobile-action="use">Use</button>
-        <button type="button" data-mobile-action="pickup">Pick up</button>
+        <button type="button" data-mobile-action="pickup">Interact</button>
+        <button type="button" data-mobile-action="gift">Gift</button>
         <button type="button" data-mobile-action="help">Help</button>
         <button type="button" data-mobile-action="debug">F3</button>
       </div>
@@ -533,7 +625,11 @@ export class WulandScene extends Phaser.Scene {
     });
     root.querySelector('[data-mobile-action="pickup"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
-      this.pickupNearbyItem();
+      this.interactOrPickup();
+    });
+    root.querySelector('[data-mobile-action="gift"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.giftSelectedItem();
     });
     root.querySelector('[data-mobile-action="help"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -611,7 +707,11 @@ export class WulandScene extends Phaser.Scene {
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.combatKeys.pickup)) {
-      this.pickupNearbyItem();
+      this.interactOrPickup();
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.combatKeys.gift)) {
+      this.giftSelectedItem();
     }
   }
 
@@ -624,12 +724,25 @@ export class WulandScene extends Phaser.Scene {
     this.room?.send("useSelectedItem");
   }
 
-  private pickupNearbyItem(): void {
+  private interactOrPickup(): void {
+    if (this.connectionState.nearMerchant) {
+      this.game.events.emit("wuland:openMerchantShop");
+      return;
+    }
+
     this.room?.send("pickupItem", {});
   }
 
   private selectHotbarSlot(slotIndex: number): void {
     this.room?.send("selectHotbarSlot", { slotIndex });
+  }
+
+  private giftSelectedItem(): void {
+    this.room?.send("giftSelectedItem", {});
+  }
+
+  private buyMerchantItem(itemDefinitionId: ItemDefinitionId): void {
+    this.room?.send("buyItem", { itemDefinitionId });
   }
 
   private moveHotbarItem(payload: { fromSlotIndex: number; toSlotIndex: number }): void {
@@ -1081,14 +1194,31 @@ export class WulandScene extends Phaser.Scene {
     avatar.statusLabel.setVisible(sleeping || defeated);
   }
 
-  private updateNearbyPickup(player: PlayerNetworkState): void {
+  private updateInteractionContext(player: PlayerNetworkState): void {
     const nearby = nearestDroppedItemClient(player, this.latestDroppedItems, 66);
     const nearbyPickupName = nearby
       ? ITEM_DEFINITIONS[nearby.itemDefinitionId].displayName
       : "";
+    const nearMerchant = distanceBetween(player, WULAND_MERCHANT) <= WULAND_MERCHANT.interactionRange;
+    const selectedItem = player.inventory[player.selectedHotbarSlot];
+    const canGift =
+      Boolean(selectedItem?.itemDefinitionId) &&
+      isCakeItemDefinitionId(selectedItem?.itemDefinitionId);
+    const giftTarget = canGift
+      ? nearestGiftPlayerClient(player, this.latestPlayers, 78)
+      : null;
+    const nearbyGiftPlayerName = giftTarget?.name ?? "";
 
-    if (nearbyPickupName !== this.connectionState.nearbyPickupName) {
-      this.setConnectionState({ nearbyPickupName });
+    if (
+      nearbyPickupName !== this.connectionState.nearbyPickupName ||
+      nearMerchant !== this.connectionState.nearMerchant ||
+      nearbyGiftPlayerName !== this.connectionState.nearbyGiftPlayerName
+    ) {
+      this.setConnectionState({
+        nearbyPickupName,
+        nearMerchant,
+        nearbyGiftPlayerName
+      });
     }
   }
 
@@ -1338,11 +1468,16 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.off("wuland:selectHotbarSlot", this.selectHotbarSlot, this);
     this.game.events.off("wuland:moveHotbarItem", this.moveHotbarItem, this);
     this.game.events.off("wuland:discardHotbarItem", this.discardHotbarItem, this);
+    this.game.events.off("wuland:buyMerchantItem", this.buyMerchantItem, this);
     window.removeEventListener("blur", this.handleWindowBlur);
     this.input.off("pointerdown", this.handlePointerDown, this);
     this.mobileRoot?.remove();
     this.mobileRoot = undefined;
     document.body.removeAttribute("data-touch-controls");
+    this.merchantSpeechTimer?.remove(false);
+    this.merchantSpeechTimer = undefined;
+    this.merchantBubble?.destroy();
+    this.merchantBubble = undefined;
     this.destinationMarker?.destroy();
     this.destinationMarker = undefined;
     this.avatars.forEach((avatar) => this.destroyAvatar(avatar));
@@ -1548,6 +1683,41 @@ const nearestDroppedItemClient = (
 
   return best;
 };
+
+const nearestGiftPlayerClient = (
+  giver: PlayerNetworkState,
+  players: Map<string, PlayerNetworkState>,
+  range: number
+): PlayerNetworkState | null => {
+  let best: PlayerNetworkState | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  players.forEach((player) => {
+    if (
+      player.playerId === giver.playerId ||
+      !player.online ||
+      player.sleeping ||
+      player.defeated
+    ) {
+      return;
+    }
+
+    const distanceToPlayer = distanceBetween(giver, player);
+
+    if (distanceToPlayer <= range && distanceToPlayer < bestDistance) {
+      best = player;
+      bestDistance = distanceToPlayer;
+    }
+  });
+
+  return best;
+};
+
+const distanceBetween = (
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): number =>
+  Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
 
 const parseCssColor = (color: string): number =>
   Number.parseInt(color.replace("#", ""), 16);

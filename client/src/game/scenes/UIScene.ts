@@ -4,7 +4,10 @@ import {
   CLASS_METADATA,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
+  WULAND_MERCHANT_STOCK,
+  isCakeItemDefinitionId,
   type InventorySlotState,
+  type ItemDefinitionId,
   type LocalProgress,
   type PlayerProfile
 } from "@wuland/shared";
@@ -22,6 +25,7 @@ export class UIScene extends Phaser.Scene {
   private progress!: LocalProgress;
   private helpOpen = false;
   private debugOpen = false;
+  private shopOpen = false;
   private connection: WulandConnectionState = {
     status: "connecting",
     message: "Connecting to WULAND server",
@@ -43,6 +47,8 @@ export class UIScene extends Phaser.Scene {
     selectedHotbarSlot: 0,
     activeItemName: "No item",
     nearbyPickupName: "",
+    nearMerchant: false,
+    nearbyGiftPlayerName: "",
     totalDroppedItems: 0
   };
   private hotbarDrag?: { slotIndex: number; startX: number; startY: number; moved: boolean };
@@ -62,6 +68,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.on("wuland:connectionUpdated", this.handleConnectionUpdated, this);
     this.game.events.on("wuland:toggleHelp", this.toggleHelp, this);
     this.game.events.on("wuland:toggleDebug", this.toggleDebug, this);
+    this.game.events.on("wuland:openMerchantShop", this.openMerchantShop, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
   }
 
@@ -94,7 +101,7 @@ export class UIScene extends Phaser.Scene {
             <span class="meter-track"><span data-hud-hp-fill></span></span>
           </div>
         </div>
-        <div class="hud-hint">1-9 select | Space attack | E use | F pick up</div>
+        <div class="hud-hint">1-9 select | Space attack | E use | F interact/shop | G gift</div>
         <div class="hud-active-item">
           <span class="eyebrow">Selected</span>
           <strong data-hud-active-item>No item</strong>
@@ -131,8 +138,21 @@ export class UIScene extends Phaser.Scene {
           <button type="button" class="secondary small" data-action="close-help">Close</button>
           <h2>Controls</h2>
           <p>WASD / arrows move. Click or tap the map to move there. Click or tap an enemy to select it.</p>
-          <p>1-9 selects a hotbar slot. Space attacks with the selected weapon. E uses a selected consumable. F picks up nearby drops.</p>
+          <p>1-9 selects a hotbar slot. Space attacks with the selected weapon. E uses a selected consumable. F picks up nearby drops or opens the shop near the merchant. G gifts selected cakes to nearby players.</p>
           <p>Drag hotbar items to swap slots. Drag outside the hotbar to drop an item on the map. Sleeping players stay visible but do not fight.</p>
+        </div>
+      </section>
+      <section class="merchant-shop" data-merchant-shop>
+        <div>
+          <header>
+            <div>
+              <span class="eyebrow">Traveling Merchant</span>
+              <h2>Odd Cart Supplies</h2>
+            </div>
+            <button type="button" class="secondary small" data-action="close-shop">Close</button>
+          </header>
+          <p class="shop-note">Currency is infinite for this prototype. Prices are flavor.</p>
+          <div class="merchant-stock" data-merchant-stock></div>
         </div>
       </section>
     `;
@@ -149,6 +169,12 @@ export class UIScene extends Phaser.Scene {
     this.root
       .querySelector('[data-action="close-help"]')
       ?.addEventListener("click", () => this.toggleHelp(false));
+    this.root
+      .querySelector('[data-action="close-shop"]')
+      ?.addEventListener("click", () => this.openMerchantShop(false));
+    this.root
+      .querySelector("[data-merchant-stock]")
+      ?.addEventListener("click", (event) => this.handleShopClick(event));
     this.root
       .querySelector("[data-hotbar-slots]")
       ?.addEventListener("pointerdown", (event) => this.handleHotbarPointerDown(event as PointerEvent));
@@ -184,10 +210,7 @@ export class UIScene extends Phaser.Scene {
       `${this.connection.localHp}/${this.connection.localMaxHp}${this.connection.defeated ? " respawning" : ""}`
     );
     this.setText("[data-hud-active-item]", this.connection.activeItemName);
-    this.setText(
-      "[data-hud-pickup-hint]",
-      this.connection.nearbyPickupName ? `F: pick up ${this.connection.nearbyPickupName}` : ""
-    );
+    this.setText("[data-hud-pickup-hint]", this.interactionHint());
     this.setText("[data-hud-enemies]", String(this.connection.totalEnemies));
     this.setText("[data-hud-alive-enemies]", String(this.connection.aliveEnemies));
     this.setText("[data-hud-shield]", String(this.connection.localShield));
@@ -195,7 +218,9 @@ export class UIScene extends Phaser.Scene {
     this.root.dataset.connectionStatus = this.connection.status;
     this.root.dataset.helpOpen = String(this.helpOpen);
     this.root.dataset.debugOpen = String(this.debugOpen);
+    this.root.dataset.shopOpen = String(this.shopOpen);
     this.renderHotbar();
+    this.renderMerchantStock();
 
     if (buildingList) {
       buildingList.innerHTML = BUILDING_NAMES.map((building) => {
@@ -224,6 +249,27 @@ export class UIScene extends Phaser.Scene {
   private toggleDebug(): void {
     this.debugOpen = !this.debugOpen;
     this.render();
+  }
+
+  private openMerchantShop(force = true): void {
+    this.shopOpen = force;
+    this.render();
+  }
+
+  private interactionHint(): string {
+    const hints: string[] = [];
+
+    if (this.connection.nearMerchant) {
+      hints.push("F: shop");
+    } else if (this.connection.nearbyPickupName) {
+      hints.push(`F: pick up ${this.connection.nearbyPickupName}`);
+    }
+
+    if (this.connection.nearbyGiftPlayerName) {
+      hints.push(`G: gift to ${this.connection.nearbyGiftPlayerName}`);
+    }
+
+    return hints.join(" | ");
   }
 
   private setText(selector: string, text: string): void {
@@ -261,12 +307,15 @@ export class UIScene extends Phaser.Scene {
       const definition = slot.itemDefinitionId ? ITEM_DEFINITIONS[slot.itemDefinitionId] : null;
       const selected = slot.slotIndex === this.connection.selectedHotbarSlot;
       const count = definition?.stackable && slot.quantity > 1 ? `<span class="hotbar-count">${slot.quantity}</span>` : "";
+      const tooltip = definition
+        ? `${definition.displayName} (${definition.itemType}): ${definition.description} ${tooltipActionForItem(definition.itemDefinitionId)}`
+        : `Empty slot ${slot.slotIndex + 1}`;
       return `
         <button
           type="button"
           class="hotbar-slot${selected ? " selected" : ""}"
           data-hotbar-slot="${slot.slotIndex}"
-          title="${definition ? `${definition.displayName}: ${definition.description}` : `Empty slot ${slot.slotIndex + 1}`}"
+          title="${escapeAttribute(tooltip)}"
         >
           <span class="hotbar-number">${slot.slotIndex + 1}</span>
           <strong>${definition?.iconText ?? ""}</strong>
@@ -275,6 +324,40 @@ export class UIScene extends Phaser.Scene {
         </button>
       `;
     }).join("");
+  }
+
+  private renderMerchantStock(): void {
+    const stock = this.root?.querySelector("[data-merchant-stock]");
+
+    if (!stock) {
+      return;
+    }
+
+    stock.innerHTML = WULAND_MERCHANT_STOCK.map((stockItem) => {
+      const definition = ITEM_DEFINITIONS[stockItem.itemDefinitionId];
+      return `
+        <article class="merchant-item">
+          <strong class="merchant-icon">${definition.iconText}</strong>
+          <div>
+            <h3>${definition.displayName}</h3>
+            <span>${definition.itemType} | ${stockItem.priceLabel}</span>
+            <p>${definition.description}</p>
+          </div>
+          <button type="button" class="primary small" data-buy-item="${definition.itemDefinitionId}">Buy</button>
+        </article>
+      `;
+    }).join("");
+  }
+
+  private handleShopClick(event: Event): void {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-buy-item]");
+    const itemDefinitionId = target?.dataset.buyItem as ItemDefinitionId | undefined;
+
+    if (!itemDefinitionId || !(itemDefinitionId in ITEM_DEFINITIONS)) {
+      return;
+    }
+
+    this.game.events.emit("wuland:buyMerchantItem", itemDefinitionId);
   }
 
   private readonly handleHotbarPointerMove = (event: PointerEvent): void => {
@@ -348,9 +431,35 @@ export class UIScene extends Phaser.Scene {
     this.game.events.off("wuland:connectionUpdated", this.handleConnectionUpdated, this);
     this.game.events.off("wuland:toggleHelp", this.toggleHelp, this);
     this.game.events.off("wuland:toggleDebug", this.toggleDebug, this);
+    this.game.events.off("wuland:openMerchantShop", this.openMerchantShop, this);
     window.removeEventListener("pointermove", this.handleHotbarPointerMove);
     window.removeEventListener("pointerup", this.handleHotbarPointerUp);
     this.root?.remove();
     this.root = undefined;
   }
 }
+
+const tooltipActionForItem = (itemDefinitionId: ItemDefinitionId): string => {
+  const definition = ITEM_DEFINITIONS[itemDefinitionId];
+
+  if (definition.itemType === "weapon") {
+    return "Press Space to attack.";
+  }
+
+  if (isCakeItemDefinitionId(itemDefinitionId)) {
+    return "Press E to eat. Press G near another player to gift.";
+  }
+
+  if (definition.itemType === "consumable") {
+    return "Press E to use.";
+  }
+
+  return "";
+};
+
+const escapeAttribute = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");

@@ -1,6 +1,6 @@
 # WULAND
 
-WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 5 keeps character creation, local profile/progress save, multiplayer village movement, sleeping offline players, mobile support, building visits, collisions, enemies, and server-authoritative combat, then replaces class-specific abilities with shared weapons and a 9-slot hotbar inventory.
+WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 6 keeps character creation, local profile/progress save, multiplayer village movement, sleeping offline players, mobile support, building visits, collisions, enemies, server-authoritative combat, shared weapons, and a 9-slot hotbar inventory, then adds a traveling merchant who sells weapons and cakes.
 
 ## Local Development
 
@@ -64,7 +64,8 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 - `1` through `9`: select a hotbar slot.
 - `Space`: attack with the selected weapon.
 - `E`: use the selected consumable.
-- `F`: pick up a nearby dropped item.
+- `F`: pick up a nearby dropped item, or open the merchant shop when near the merchant.
+- `G`: gift the selected cake to a nearby online player.
 - Click or tap an enemy: select it as your weapon target.
 - Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop it on the map.
 
@@ -83,6 +84,25 @@ Weapons:
 - Sword: short-range melee arc with moderate damage.
 - Magic Wand: longer-range magic projectile with medium damage.
 - Rock: thrown blunt projectile with lower damage.
+
+## Merchant and Cakes
+
+The mysterious Odd Cart Merchant stands near the main WULAND village path around the center-left of town. Stand near the cart and press `F` to open the shop. On mobile, use the Interact button.
+
+Currency is infinite in this prototype. The shop still shows prices as flavor, but buying does not spend money.
+
+The merchant sells:
+
+- Sword
+- Magic Wand
+- Rock
+- Chocolate Cake
+- Fruit Cake
+- Honey Cake
+- Cheese Cake
+- Mystery Cake
+
+Cakes are consumables. Select a cake with `1` through `9`, then press `E` to eat it and heal. Stand near another online player and press `G` to gift the selected cake. Cakes can also be dragged out of the hotbar to drop them on the map, then another player can pick them up with `F`.
 
 For temporary live-world cleanup, the server also supports:
 
@@ -118,7 +138,7 @@ Enemies spawn around WULAND, wander, chase nearby online players, deal contact d
 
 ## Server Persistence
 
-Prototype player persistence is stored as JSON at `server/data/wuland-players.json`. The server creates `server/data` automatically, debounces disk writes, saves joins, movement position updates, hotbar inventory, selected hotbar slot, dropped items, pickups, discards, and disconnects, and removes expired offline players based on `OFFLINE_PLAYER_TTL_HOURS`.
+Prototype player persistence is stored as JSON at `server/data/wuland-players.json`. The server creates `server/data` automatically, debounces disk writes, saves joins, movement position updates, hotbar inventory, selected hotbar slot, purchased items, gifted cakes, dropped items, pickups, discards, and disconnects, and removes expired offline players based on `OFFLINE_PLAYER_TTL_HOURS`.
 
 Disconnected players remain visible as sleeping characters at their last saved position. If the same `playerId` returns, the sleeping character wakes up and no duplicate is created. If the same `playerId` connects twice at the same time, the second connection is rejected with a clear error.
 
@@ -174,3 +194,5 @@ Phase 3 added simple class abilities, enemies, HP, attacks, cooldowns, defeat, a
 Phase 4 added mobile controls and deployment hardening.
 
 Phase 5 replaces class abilities with shared weapons, a 9-slot inventory hotbar, item dropping, pickup, and dropped-item persistence.
+
+Phase 6 adds the merchant shop, infinite prototype currency, purchasable weapons, multiple healing cakes, cake gifting, and persisted bought/dropped cake items.

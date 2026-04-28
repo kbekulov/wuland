@@ -13,13 +13,18 @@ import {
   WULAND_COLLISION_RECTS,
   WULAND_ENEMY_SPAWNS,
   WULAND_MAP_ID,
+  WULAND_MERCHANT,
+  WULAND_MERCHANT_STOCK,
   WULAND_WORLD,
   applyServerMovement,
   applyServerVectorMovement,
   clampWorldPosition,
   collidesWithWorld,
   createItemInstanceId,
+  isBuyItemRequest,
+  isCakeItemDefinitionId,
   isCombatRequest,
+  isGiftItemRequest,
   isHotbarSelectRequest,
   isInventoryMoveRequest,
   isInventorySlotRequest,
@@ -62,6 +67,7 @@ const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const BASIC_FACING_DOT = Math.cos((85 * Math.PI) / 180);
 const WEAPON_ATTACK_COOLDOWN_MS = 420;
 const PICKUP_RANGE = 66;
+const GIFT_RANGE = 78;
 const DROP_OFFSET = 34;
 
 export class WulandInventorySlotSchema extends Schema {
@@ -281,6 +287,29 @@ export class WulandRoom extends Room<WulandRoomState> {
       }
 
       this.pickupItem(playerId, (message as { droppedItemId?: string } | null | undefined)?.droppedItemId);
+    });
+
+    this.onMessage("buyItem", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isBuyItemRequest(message)) {
+        return;
+      }
+
+      this.buyItem(playerId, message.itemDefinitionId);
+    });
+
+    this.onMessage("giftSelectedItem", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isGiftItemRequest(message)) {
+        return;
+      }
+
+      this.giftSelectedItem(
+        playerId,
+        (message as { targetPlayerId?: string } | null | undefined)?.targetPlayerId
+      );
     });
 
     this.setSimulationInterval(
@@ -909,9 +938,15 @@ export class WulandRoom extends Room<WulandRoomState> {
       return;
     }
 
+    if (player.hp >= player.maxHp) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Already healthy", "#ffd8a8");
+      return;
+    }
+
+    const healAmount = healAmountForItem(definition);
     const before = player.hp;
-    player.hp = Math.min(player.maxHp, player.hp + definition.healAmount);
-    slot.quantity -= 1;
+    player.hp = Math.min(player.maxHp, player.hp + healAmount);
+    removeOneFromSlot(slot);
 
     if (slot.quantity <= 0) {
       clearSlot(slot);
@@ -925,7 +960,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       player.x,
       player.y,
       player.hp - before,
-      `+${player.hp - before}`,
+      `Ate ${definition.displayName} +${player.hp - before}`,
       "#91f2bd",
       item.itemDefinitionId
     );
@@ -967,6 +1002,95 @@ export class WulandRoom extends Room<WulandRoomState> {
       droppedItem.itemDefinitionId as ItemDefinitionId
     );
     this.updateCounts();
+  }
+
+  private buyItem(playerId: string, itemDefinitionId: ItemDefinitionId): void {
+    const player = this.state.players.get(playerId);
+    const stockItem = WULAND_MERCHANT_STOCK.find((item) => item.itemDefinitionId === itemDefinitionId);
+
+    if (!player || !player.online || player.sleeping || player.defeated || !stockItem) {
+      return;
+    }
+
+    if (!isNearMerchant(player)) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Shop is too far away", "#ffd8a8");
+      return;
+    }
+
+    const item = createInventoryItem(itemDefinitionId, player.playerId);
+
+    if (!addItemToInventory(player, item)) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Inventory full", "#ffd8a8");
+      return;
+    }
+
+    this.persistPlayer(player);
+    this.broadcastCombatEvent(
+      "shop",
+      player.playerId,
+      player.playerId,
+      player.x,
+      player.y,
+      0,
+      `Bought ${ITEM_DEFINITIONS[itemDefinitionId].displayName}`,
+      "#fff3bf",
+      itemDefinitionId
+    );
+  }
+
+  private giftSelectedItem(playerId: string, requestedTargetPlayerId?: string): void {
+    const giver = this.state.players.get(playerId);
+
+    if (!giver || !giver.online || giver.sleeping || giver.defeated) {
+      return;
+    }
+
+    const slot = getInventorySlot(giver, giver.selectedHotbarSlot);
+    const item = slot ? slotRecordFromSchema(slot) : null;
+
+    if (!slot || !item?.itemDefinitionId || !isCakeItemDefinitionId(item.itemDefinitionId)) {
+      this.broadcastCombatEvent("notice", giver.playerId, giver.playerId, giver.x, giver.y, 0, "Select a cake to gift", "#ffd8a8");
+      return;
+    }
+
+    const receiver = requestedTargetPlayerId
+      ? this.state.players.get(requestedTargetPlayerId)
+      : nearestGiftTarget(giver, this.state.players, GIFT_RANGE);
+
+    if (
+      !receiver ||
+      receiver.playerId === giver.playerId ||
+      !receiver.online ||
+      receiver.sleeping ||
+      distance(giver, receiver) > GIFT_RANGE
+    ) {
+      this.broadcastCombatEvent("notice", giver.playerId, giver.playerId, giver.x, giver.y, 0, "No teammate nearby", "#ffd8a8");
+      return;
+    }
+
+    const giftItem = {
+      droppedItemId: "",
+      itemDefinitionId: item.itemDefinitionId,
+      itemInstanceId: createItemInstanceId(item.itemDefinitionId, `${giver.playerId}-gift-${Date.now()}`),
+      quantity: 1,
+      mapId: WULAND_MAP_ID,
+      x: receiver.x,
+      y: receiver.y,
+      droppedByPlayerId: giver.playerId,
+      droppedAt: new Date().toISOString()
+    } satisfies DroppedItemNetworkState;
+
+    if (!addItemToInventory(receiver, giftItem)) {
+      this.broadcastCombatEvent("notice", giver.playerId, giver.playerId, giver.x, giver.y, 0, `${receiver.name}'s inventory is full`, "#ffd8a8");
+      return;
+    }
+
+    removeOneFromSlot(slot);
+    this.persistPlayer(giver);
+    this.persistPlayer(receiver);
+    const displayName = ITEM_DEFINITIONS[item.itemDefinitionId].displayName;
+    this.broadcastCombatEvent("gift", giver.playerId, receiver.playerId, giver.x, giver.y, 0, `Gifted ${displayName} to ${receiver.name}`, "#ffdeeb", item.itemDefinitionId);
+    this.broadcastCombatEvent("gift", giver.playerId, receiver.playerId, receiver.x, receiver.y, 0, `${giver.name} gave you ${displayName}`, "#ffdeeb", item.itemDefinitionId);
   }
 
   private respawnEnemy(enemy: WulandEnemySchema): void {
@@ -1246,6 +1370,14 @@ const clearSlot = (slot: WulandInventorySlotSchema): void => {
   slot.quantity = 0;
 };
 
+const removeOneFromSlot = (slot: WulandInventorySlotSchema): void => {
+  slot.quantity -= 1;
+
+  if (slot.quantity <= 0) {
+    clearSlot(slot);
+  }
+};
+
 const getInventorySlot = (
   player: WulandPlayerSchema,
   slotIndex: number
@@ -1288,39 +1420,96 @@ const inventoryFromSchema = (player: WulandPlayerSchema): InventorySlotState[] =
         };
   });
 
+const createInventoryItem = (
+  itemDefinitionId: ItemDefinitionId,
+  seedPrefix: string
+): DroppedItemNetworkState => ({
+  droppedItemId: "",
+  itemDefinitionId,
+  itemInstanceId: createItemInstanceId(
+    itemDefinitionId,
+    `${seedPrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  ),
+  quantity: 1,
+  mapId: WULAND_MAP_ID,
+  x: WULAND_MERCHANT.x,
+  y: WULAND_MERCHANT.y,
+  droppedByPlayerId: WULAND_MERCHANT.id,
+  droppedAt: new Date().toISOString()
+});
+
+const canFitItemInInventory = (
+  player: WulandPlayerSchema,
+  item: DroppedItemNetworkState,
+  definition: ItemDefinition
+): boolean => {
+  let remaining = Math.max(1, Math.floor(item.quantity));
+
+  if (definition.stackable) {
+    player.inventory.forEach((slot) => {
+      if (
+        slot.itemDefinitionId === item.itemDefinitionId &&
+        slot.quantity > 0 &&
+        slot.quantity < definition.maxStack
+      ) {
+        remaining -= Math.min(definition.maxStack - slot.quantity, remaining);
+      }
+    });
+  }
+
+  if (remaining <= 0) {
+    return true;
+  }
+
+  const emptySlots = player.inventory.filter((slot) => !slot.itemDefinitionId).length;
+  return emptySlots >= Math.ceil(remaining / definition.maxStack);
+};
+
 const addItemToInventory = (
   player: WulandPlayerSchema,
   item: DroppedItemNetworkState
 ): boolean => {
   const definition = ITEM_DEFINITIONS[item.itemDefinitionId];
+  let remaining = Math.max(1, Math.floor(item.quantity));
 
-  if (definition.stackable) {
-    const stack = player.inventory.find((slot) =>
-      slot.itemDefinitionId === item.itemDefinitionId &&
-      slot.quantity > 0 &&
-      slot.quantity < definition.maxStack
-    );
-
-    if (stack) {
-      const room = definition.maxStack - stack.quantity;
-      const moved = Math.min(room, item.quantity);
-      stack.quantity += moved;
-
-      if (moved >= item.quantity) {
-        return true;
-      }
-    }
-  }
-
-  const emptySlot = player.inventory.find((slot) => !slot.itemDefinitionId);
-
-  if (!emptySlot) {
+  if (!canFitItemInInventory(player, item, definition)) {
     return false;
   }
 
-  emptySlot.itemDefinitionId = item.itemDefinitionId;
-  emptySlot.itemInstanceId = item.itemInstanceId;
-  emptySlot.quantity = Math.min(item.quantity, definition.maxStack);
+  if (definition.stackable) {
+    player.inventory.forEach((slot) => {
+      if (
+        remaining <= 0 ||
+        slot.itemDefinitionId !== item.itemDefinitionId ||
+        slot.quantity <= 0 ||
+        slot.quantity >= definition.maxStack
+      ) {
+        return;
+      }
+
+      const moved = Math.min(definition.maxStack - slot.quantity, remaining);
+      slot.quantity += moved;
+      remaining -= moved;
+    });
+
+    if (remaining <= 0) {
+      return true;
+    }
+  }
+
+  while (remaining > 0) {
+    const emptySlot = player.inventory.find((slot) => !slot.itemDefinitionId);
+
+    if (!emptySlot) {
+      return false;
+    }
+
+    emptySlot.itemDefinitionId = item.itemDefinitionId;
+    emptySlot.itemInstanceId = item.itemInstanceId;
+    emptySlot.quantity = Math.min(remaining, definition.maxStack);
+    remaining -= emptySlot.quantity;
+  }
+
   return true;
 };
 
@@ -1342,6 +1531,51 @@ const nearestDroppedItem = (
   });
 
   return best;
+};
+
+const nearestGiftTarget = (
+  giver: WulandPlayerSchema,
+  players: MapSchema<WulandPlayerSchema>,
+  range: number
+): WulandPlayerSchema | null => {
+  let best: WulandPlayerSchema | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  players.forEach((player) => {
+    if (
+      player.playerId === giver.playerId ||
+      !player.online ||
+      player.sleeping ||
+      player.defeated
+    ) {
+      return;
+    }
+
+    const distanceToPlayer = distance(giver, player);
+
+    if (distanceToPlayer <= range && distanceToPlayer < bestDistance) {
+      best = player;
+      bestDistance = distanceToPlayer;
+    }
+  });
+
+  return best;
+};
+
+const isNearMerchant = (player: WulandPlayerSchema): boolean =>
+  distance(player, WULAND_MERCHANT) <= WULAND_MERCHANT.interactionRange;
+
+const healAmountForItem = (definition: ItemDefinition): number => {
+  if (
+    definition.healAmountMin !== undefined &&
+    definition.healAmountMax !== undefined &&
+    definition.healAmountMax > definition.healAmountMin
+  ) {
+    const range = definition.healAmountMax - definition.healAmountMin;
+    return Math.round(definition.healAmountMin + Math.random() * range);
+  }
+
+  return definition.healAmount ?? 0;
 };
 
 const droppedItemFromRecord = (record: DroppedItemNetworkState): WulandDroppedItemSchema => {

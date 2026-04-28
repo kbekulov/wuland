@@ -844,7 +844,8 @@ label span,
   display: none;
 }
 
-.help-overlay {
+.help-overlay,
+.merchant-shop {
   position: absolute;
   inset: 0;
   display: none;
@@ -858,7 +859,12 @@ label span,
   display: grid;
 }
 
-.help-overlay > div {
+.wuland-hud[data-shop-open="true"] .merchant-shop {
+  display: grid;
+}
+
+.help-overlay > div,
+.merchant-shop > div {
   width: min(430px, calc(100vw - 32px));
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
@@ -867,15 +873,90 @@ label span,
   padding: 16px;
 }
 
+.merchant-shop > div {
+  display: grid;
+  gap: 12px;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  overflow: auto;
+}
+
+.merchant-shop header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
 .help-overlay h2 {
   margin: 8px 0 10px;
   font-size: 24px;
 }
 
-.help-overlay p {
+.merchant-shop h2 {
+  margin: 4px 0 0;
+  font-size: 24px;
+}
+
+.help-overlay p,
+.merchant-shop p {
   margin: 8px 0 0;
   color: #cfe7e0;
   line-height: 1.4;
+}
+
+.shop-note {
+  margin: 0;
+  color: #fff3bf;
+  font-weight: 800;
+}
+
+.merchant-stock {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.merchant-item {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 10px;
+}
+
+.merchant-icon {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 8px;
+  background: rgba(255, 243, 191, 0.16);
+  color: #fff3bf;
+  font-size: 13px;
+}
+
+.merchant-item h3 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 15px;
+}
+
+.merchant-item span {
+  display: block;
+  margin-top: 3px;
+  color: #abd8d0;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.merchant-item p {
+  margin-top: 5px;
+  font-size: 12px;
 }
 
 .mobile-controls {
@@ -948,7 +1029,8 @@ body[data-touch-controls] .mobile-controls {
 }
 
 .mobile-actions [data-mobile-action="use"],
-.mobile-actions [data-mobile-action="pickup"] {
+.mobile-actions [data-mobile-action="pickup"],
+.mobile-actions [data-mobile-action="gift"] {
   background: rgba(116, 192, 252, 0.88);
   color: #071b2c;
 }
@@ -1014,6 +1096,18 @@ body[data-touch-controls] .mobile-controls {
   .preview-sprite {
     transform: scale(0.86);
     margin: -4px 0 -20px;
+  }
+
+  .merchant-stock {
+    grid-template-columns: 1fr;
+  }
+
+  .merchant-item {
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+
+  .merchant-item button {
+    grid-column: 1 / -1;
   }
 }
 

@@ -61,7 +61,6 @@ interface PlayerAvatar {
   shieldFill: Phaser.GameObjects.Rectangle;
   nameLabel: Phaser.GameObjects.Text;
   classLabel: Phaser.GameObjects.Text;
-  roleLabel: Phaser.GameObjects.Text;
   statusLabel: Phaser.GameObjects.Text;
   sleepLabel: Phaser.GameObjects.Text;
   target: Phaser.Math.Vector2;
@@ -758,7 +757,6 @@ export class WulandScene extends Phaser.Scene {
         shieldFill: this.add.rectangle(player.x - 30, player.y - 68, 0, 4, 0x74c0fc, 0.95).setOrigin(0, 0.5).setDepth(73),
         nameLabel: this.createPlayerLabel(player.name, 15, "#ffffff", "rgba(16, 22, 20, 0.76)"),
         classLabel: this.createPlayerLabel("", 11, "#ffffff", CLASS_METADATA[player.className].color),
-        roleLabel: this.createPlayerLabel("", 10, "#f5f1d5", "rgba(29, 35, 38, 0.78)"),
         statusLabel: this.createPlayerLabel("", 11, "#f5f1d5", "rgba(35, 38, 45, 0.82)"),
         sleepLabel: this.createPlayerLabel("Zzz", 16, "#fff7b2", "rgba(44, 46, 62, 0.8)"),
         target: new Phaser.Math.Vector2(player.x, player.y),
@@ -775,7 +773,6 @@ export class WulandScene extends Phaser.Scene {
     }
 
     const classMeta = CLASS_METADATA[player.className];
-    const combatMeta = CLASS_COMBAT_METADATA[player.className];
     const statusText = player.defeated
       ? "respawning"
       : player.sleeping || !player.online
@@ -790,7 +787,6 @@ export class WulandScene extends Phaser.Scene {
     avatar.classLabel
       .setText(`${classMeta.iconText} ${classMeta.shortLabel}`)
       .setBackgroundColor(classMeta.color);
-    avatar.roleLabel.setText(combatMeta.role);
     avatar.statusLabel.setText(statusText).setVisible(statusText.length > 0);
     avatar.sleepLabel.setVisible(player.sleeping || !player.online);
     avatar.hpFill
@@ -947,8 +943,7 @@ export class WulandScene extends Phaser.Scene {
     avatar.sleepLabel.setPosition(x, y - 108);
     avatar.nameLabel.setPosition(x, y - 67);
     avatar.classLabel.setPosition(x, y - 47);
-    avatar.roleLabel.setPosition(x, y - 28);
-    avatar.statusLabel.setPosition(x, y - 10);
+    avatar.statusLabel.setPosition(x, y - 28);
     avatar.statusLabel.setVisible(sleeping || defeated);
   }
 
@@ -1233,7 +1228,6 @@ export class WulandScene extends Phaser.Scene {
     avatar.shieldFill.destroy();
     avatar.nameLabel.destroy();
     avatar.classLabel.destroy();
-    avatar.roleLabel.destroy();
     avatar.statusLabel.destroy();
     avatar.sleepLabel.destroy();
   }

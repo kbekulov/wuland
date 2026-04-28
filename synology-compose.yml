@@ -2,7 +2,9 @@ name: wuland
 
 services:
   wuland-server:
-    image: ghcr.io/kbekulov/wuland-server:latest
+    # Pinned to this build so Synology is forced to pull the cleanup version
+    # instead of reusing an older cached "latest" image.
+    image: ghcr.io/kbekulov/wuland-server:053c0a725f3995c06aaecaae50cc2fb5bcb788cc
     container_name: wuland-server
     restart: unless-stopped
     ports:

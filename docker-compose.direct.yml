@@ -15,6 +15,8 @@ services:
       PORT: 2567
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-https://wuland.bekulov.com}"
       OFFLINE_PLAYER_TTL_HOURS: "${OFFLINE_PLAYER_TTL_HOURS:-168}"
+      CLEAR_PLAYER_STORE_ON_START: "${CLEAR_PLAYER_STORE_ON_START:-false}"
+      ENEMY_AI_PAUSED: "${ENEMY_AI_PAUSED:-false}"
     volumes:
       - ./server/data:/app/server/data
     healthcheck:

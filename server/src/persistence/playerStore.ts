@@ -29,11 +29,13 @@ interface PlayerStoreFile {
 export interface PlayerStoreOptions {
   filePath?: string;
   offlinePlayerTtlHours?: number;
+  clearOnStart?: boolean;
 }
 
 export class PlayerStore {
   private readonly filePath: string;
   private readonly offlinePlayerTtlHours: number;
+  private readonly clearOnStart: boolean;
   private readonly players = new Map<string, PlayerNetworkState>();
   private saveTimer?: NodeJS.Timeout;
   private loaded = false;
@@ -42,6 +44,7 @@ export class PlayerStore {
     this.filePath = options.filePath ?? DEFAULT_STORE_PATH;
     this.offlinePlayerTtlHours =
       options.offlinePlayerTtlHours ?? DEFAULT_OFFLINE_PLAYER_TTL_HOURS;
+    this.clearOnStart = options.clearOnStart ?? false;
   }
 
   async load(): Promise<void> {
@@ -50,6 +53,14 @@ export class PlayerStore {
     }
 
     await mkdir(dirname(this.filePath), { recursive: true });
+
+    if (this.clearOnStart) {
+      this.players.clear();
+      this.loaded = true;
+      await this.saveNow();
+      console.log("[WULAND] Stored sleeping players cleared on startup.");
+      return;
+    }
 
     try {
       const raw = await readFile(this.filePath, "utf8");

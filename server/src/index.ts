@@ -16,6 +16,8 @@ const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 const OFFLINE_PLAYER_TTL_HOURS = Number.parseFloat(
   process.env.OFFLINE_PLAYER_TTL_HOURS ?? String(DEFAULT_OFFLINE_PLAYER_TTL_HOURS)
 );
+const CLEAR_PLAYER_STORE_ON_START = parseBoolean(process.env.CLEAR_PLAYER_STORE_ON_START);
+const ENEMY_AI_PAUSED = parseBoolean(process.env.ENEMY_AI_PAUSED);
 
 const app = express();
 
@@ -38,7 +40,9 @@ app.get("/health", (_request, response) => {
     service: "wuland-server",
     environment: NODE_ENV,
     room: "wuland",
-    offlinePlayerTtlHours: OFFLINE_PLAYER_TTL_HOURS
+    offlinePlayerTtlHours: OFFLINE_PLAYER_TTL_HOURS,
+    clearPlayerStoreOnStart: CLEAR_PLAYER_STORE_ON_START,
+    enemyAiPaused: ENEMY_AI_PAUSED
   });
 });
 
@@ -46,7 +50,8 @@ const httpServer = createServer(app);
 const playerStore = await createPlayerStore({
   offlinePlayerTtlHours: Number.isFinite(OFFLINE_PLAYER_TTL_HOURS)
     ? OFFLINE_PLAYER_TTL_HOURS
-    : DEFAULT_OFFLINE_PLAYER_TTL_HOURS
+    : DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
+  clearOnStart: CLEAR_PLAYER_STORE_ON_START
 });
 const gameServer = new Server({
   transport: new WebSocketTransport({
@@ -56,7 +61,8 @@ const gameServer = new Server({
 
 gameServer.define("wuland", WulandRoom, {
   playerStore,
-  offlinePlayerTtlHours: OFFLINE_PLAYER_TTL_HOURS
+  offlinePlayerTtlHours: OFFLINE_PLAYER_TTL_HOURS,
+  enemyAiPaused: ENEMY_AI_PAUSED
 });
 gameServer.onShutdown(async () => {
   await playerStore.saveNow();
@@ -76,4 +82,12 @@ function parseAllowedOrigins(value: string | undefined): string[] {
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+}
+
+function parseBoolean(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }

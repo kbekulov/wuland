@@ -119,6 +119,7 @@ export class WulandRoomState extends Schema {
 interface WulandRoomOptions {
   playerStore: PlayerStore;
   offlinePlayerTtlHours?: number;
+  enemyAiPaused?: boolean;
 }
 
 export class WulandRoom extends Room<WulandRoomState> {
@@ -129,6 +130,7 @@ export class WulandRoom extends Room<WulandRoomState> {
   private readonly lastPersistedPosition = new Map<string, { x: number; y: number; at: number }>();
   private readonly lastBasicAttack = new Map<string, number>();
   private readonly enemyContactTimes = new Map<string, number>();
+  private enemyAiPaused = false;
   private combatEventCounter = 0;
   private dynamicEnemyCounter = 0;
 
@@ -138,6 +140,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.autoDispose = false;
     this.patchRate = 1000 / NETWORK_TICK_RATE;
     this.playerStore = options.playerStore;
+    this.enemyAiPaused = options.enemyAiPaused ?? false;
 
     this.setState(new WulandRoomState());
     this.playerStore.allVisiblePlayers().forEach((player) => {
@@ -438,6 +441,11 @@ export class WulandRoom extends Room<WulandRoomState> {
 
       if (enemy.weakenedUntil > 0 && now > enemy.weakenedUntil) {
         enemy.weakenedUntil = 0;
+      }
+
+      if (this.enemyAiPaused) {
+        enemy.targetPlayerId = "";
+        return;
       }
 
       const definition = ENEMY_DEFINITIONS[enemy.type as EnemyType];

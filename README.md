@@ -47,6 +47,8 @@ PORT=2567
 NODE_ENV=development
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:4173,https://wuland.bekulov.com
 OFFLINE_PLAYER_TTL_HOURS=168
+CLEAR_PLAYER_STORE_ON_START=false
+ENEMY_AI_PAUSED=false
 ```
 
 `npm run dev` builds shared types first, then starts Vite and the Node/Colyseus server concurrently.
@@ -64,6 +66,11 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 - `K` or `Space`: class special ability.
 
 Combat is intentionally simple prototype combat. The server owns player HP, enemy HP, ability cooldowns, enemy movement, damage, defeats, and respawns. The browser only sends movement and attack requests.
+
+For temporary live-world cleanup, the server also supports:
+
+- `CLEAR_PLAYER_STORE_ON_START=true`: wipes persisted sleeping/offline players from the JSON store when the server starts.
+- `ENEMY_AI_PAUSED=true`: freezes enemy wandering, chasing, and contact damage while keeping enemies visible and attackable.
 
 ## Classes
 

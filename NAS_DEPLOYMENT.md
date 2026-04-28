@@ -32,6 +32,15 @@ with your Cloudflare Tunnel token.
 
 6. Upload `synology-compose.yml` in Synology Container Manager.
 
+Current prototype cleanup settings in `synology-compose.yml`:
+
+```yaml
+CLEAR_PLAYER_STORE_ON_START: "true"
+ENEMY_AI_PAUSED: "true"
+```
+
+That means the next NAS server start will clear stored sleeping/offline players and keep enemies frozen in place. After the cleanup has happened, set `CLEAR_PLAYER_STORE_ON_START` back to `"false"` if you want new sleeping players to persist across future restarts.
+
 This option does not require copying the whole project to the NAS. The NAS pulls the already-built game server image from GitHub Container Registry.
 
 ## Alternative: Copy The Source Folder To The NAS
@@ -89,6 +98,8 @@ Then edit `.env`:
 ALLOWED_ORIGINS=https://wuland.bekulov.com
 WULAND_SERVER_PORT=2567
 OFFLINE_PLAYER_TTL_HOURS=168
+CLEAR_PLAYER_STORE_ON_START=false
+ENEMY_AI_PAUSED=false
 CLOUDFLARE_TUNNEL_TOKEN=replace_with_your_cloudflare_tunnel_token
 ```
 

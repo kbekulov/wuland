@@ -36,7 +36,7 @@ jobs:
 
       - name: Build client
         env:
-          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL || 'wss://wuland-server.bekulov.com' }}
         run: npm run build:client
 
       - name: Configure Pages

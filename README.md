@@ -1,6 +1,6 @@
 # WULAND
 
-WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 6 keeps character creation, local profile/progress save, multiplayer village movement, sleeping offline players, mobile support, building visits, collisions, enemies, server-authoritative combat, shared weapons, and a 9-slot hotbar inventory, then adds a traveling merchant who sells weapons and cakes.
+WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 7 keeps character creation, local profile/progress save, multiplayer movement, sleeping offline players, mobile support, enemies, server-authoritative combat, shared weapons, a 9-slot hotbar inventory, merchant shopping, cakes, and dropped items, then turns the village into a multi-map world with enterable buildings.
 
 ## Local Development
 
@@ -59,12 +59,36 @@ For the live GitHub Pages client, set the repository variable `VITE_SERVER_URL` 
 VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 ```
 
+## Movement And World Controls
+
+- `WASD` or arrow keys: move.
+- Mouse click or touchscreen tap: move toward a target.
+- Mobile joystick or D-pad: direct movement.
+- Walk into a marked doorway or press `F` near it to enter a building.
+- Press `F` near an interior exit door to return to WULAND.
+
+Keyboard or joystick movement interrupts click/tap movement. The server remains authoritative for movement, map transitions, collision, and final position.
+
+## Multi-Map WULAND
+
+The overworld is the main WULAND village. The five buildings now have separate interior maps:
+
+- RPA CoE: automation office with desks, terminals, and bot/server stations.
+- Bathroom: tiled room with sinks, stalls, and mirrors.
+- Kitchen: counters, fridge, stove, coffee area, and tables.
+- BusyBeet: busy workspace with desks, notice board, and productivity props.
+- Din Break: relaxed break room with couches, vending machine, and coffee table.
+
+Each overworld building has a doorway marker and hovering arrow. Each interior has an exit door with its own marker. Entering an interior marks that building as visited in localStorage progress.
+
+Players, sleeping players, enemies, dropped items, and prompts are filtered by map. You only see online or sleeping players who are in the same map as you. Dropped items stay in the map where they were dropped, so a cake dropped in Kitchen remains in Kitchen until someone in Kitchen picks it up.
+
 ## Combat Controls
 
 - `1` through `9`: select a hotbar slot.
 - `Space`: attack with the selected weapon.
 - `E`: use the selected consumable.
-- `F`: pick up a nearby dropped item, or open the merchant shop when near the merchant.
+- `F`: use a nearby door, pick up a nearby dropped item, or open the merchant shop when near the merchant.
 - `G`: gift the selected cake to a nearby online player.
 - Click or tap an enemy: select it as your weapon target.
 - Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop it on the map.
@@ -138,11 +162,11 @@ Enemies spawn around WULAND, wander, chase nearby online players, deal contact d
 
 ## Server Persistence
 
-Prototype player persistence is stored as JSON at `server/data/wuland-players.json`. The server creates `server/data` automatically, debounces disk writes, saves joins, movement position updates, hotbar inventory, selected hotbar slot, purchased items, gifted cakes, dropped items, pickups, discards, and disconnects, and removes expired offline players based on `OFFLINE_PLAYER_TTL_HOURS`.
+Prototype player persistence is stored as JSON at `server/data/wuland-players.json`. The server creates `server/data` automatically, debounces disk writes, saves joins, current map, movement position updates, hotbar inventory, selected hotbar slot, purchased items, gifted cakes, dropped items, pickups, discards, and disconnects, and removes expired offline players based on `OFFLINE_PLAYER_TTL_HOURS`.
 
-Disconnected players remain visible as sleeping characters at their last saved position. If the same `playerId` returns, the sleeping character wakes up and no duplicate is created. If the same `playerId` connects twice at the same time, the second connection is rejected with a clear error.
+Disconnected players remain visible as sleeping characters at their last saved map and position. If someone disconnects inside a building, they sleep inside that room and are only visible to players who enter the same room. If the same `playerId` returns, the sleeping character wakes up in the correct map and no duplicate is created. If the same `playerId` connects twice at the same time, the second connection is rejected with a clear error.
 
-Dropped items are server persisted and survive server restart if the JSON file remains available. Combat state itself is not permanent yet: player HP and enemies reset when the server restarts.
+Dropped items are saved with their `mapId` and survive server restart if the JSON file remains available. Combat state itself is not permanent yet: player HP and enemies reset when the server restarts.
 
 JSON file persistence is prototype-only. A production version needs real accounts/authentication and database-backed persistence such as SQLite, Redis, or Postgres.
 
@@ -178,7 +202,7 @@ See `NAS_DEPLOYMENT.md` for the step-by-step checklist.
 ## Project Shape
 
 - `client`: Phaser 3, TypeScript, Vite, localStorage save data, and Colyseus client networking.
-- `shared`: shared constants, validation helpers, movement rules, item definitions, player profile types, network state, map bounds, and collision rectangles.
+- `shared`: shared constants, validation helpers, movement rules, item definitions, player profile types, network state, map bounds, collision rectangles, map IDs, and portal definitions.
 - `server`: Node.js, TypeScript, Express health endpoint, Colyseus room, JSON player store, and Docker deployment files.
 
 The production build is deployed to GitHub Pages at `https://wuland.bekulov.com`. The repository includes a GitHub Actions Pages workflow and also keeps root-level built assets for the current branch-based Pages configuration.
@@ -196,3 +220,5 @@ Phase 4 added mobile controls and deployment hardening.
 Phase 5 replaces class abilities with shared weapons, a 9-slot inventory hotbar, item dropping, pickup, and dropped-item persistence.
 
 Phase 6 adds the merchant shop, infinite prototype currency, purchasable weapons, multiple healing cakes, cake gifting, and persisted bought/dropped cake items.
+
+Phase 7 adds multi-map WULAND, enterable building interiors, server-authoritative portal transitions, map-specific sleeping players, and map-specific dropped items.

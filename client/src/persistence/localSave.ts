@@ -2,13 +2,16 @@ import {
   BUILDING_NAMES,
   DEFAULT_COSMETICS,
   LOCAL_SAVE_VERSION,
+  WULAND_MAP_ID,
   WULAND_WORLD,
+  clampMapPosition,
   type BuildingName,
   type LocalProgress,
   type PlayerProfile,
   isBuildingName,
   isCharacterCosmetics,
   isGender,
+  isMapId,
   isPlayerClass
 } from "@wuland/shared";
 
@@ -59,13 +62,12 @@ const createPlayerId = (): string => {
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
 
-const clampPosition = (x: number, y: number) => ({
-  x: clamp(x, 24, WULAND_WORLD.width - 24),
-  y: clamp(y, 32, WULAND_WORLD.height - 32)
-});
+const clampPosition = (x: number, y: number, mapId = WULAND_MAP_ID) =>
+  clampMapPosition({ x: clamp(x, 0, Number.MAX_SAFE_INTEGER), y: clamp(y, 0, Number.MAX_SAFE_INTEGER) }, mapId);
 
 export const createInitialProgress = (playerId: string): LocalProgress => ({
   playerId,
+  currentMapId: WULAND_MAP_ID,
   lastPosition: { ...WULAND_WORLD.defaultSpawn },
   visitedBuildings: [],
   updatedAt: new Date().toISOString()
@@ -120,7 +122,12 @@ export const saveProgress = (progress: LocalProgress): void => {
 
   const normalized: LocalProgress = {
     ...progress,
-    lastPosition: clampPosition(progress.lastPosition.x, progress.lastPosition.y),
+    currentMapId: progress.currentMapId ?? WULAND_MAP_ID,
+    lastPosition: clampPosition(
+      progress.lastPosition.x,
+      progress.lastPosition.y,
+      progress.currentMapId ?? WULAND_MAP_ID
+    ),
     visitedBuildings: uniqueVisitedBuildings(progress.visitedBuildings)
   };
 
@@ -141,7 +148,12 @@ export const loadProgress = (): LocalProgress | null => {
 
   return {
     ...value,
-    lastPosition: clampPosition(value.lastPosition.x, value.lastPosition.y),
+    currentMapId: value.currentMapId ?? WULAND_MAP_ID,
+    lastPosition: clampPosition(
+      value.lastPosition.x,
+      value.lastPosition.y,
+      value.currentMapId ?? WULAND_MAP_ID
+    ),
     visitedBuildings: uniqueVisitedBuildings(value.visitedBuildings)
   };
 };
@@ -196,6 +208,7 @@ const isValidProgress = (value: unknown): value is LocalProgress => {
 
   if (
     !isNonEmptyString(value.playerId) ||
+    (value.currentMapId !== undefined && !isMapId(value.currentMapId)) ||
     !isFiniteNumber(value.lastPosition.x) ||
     !isFiniteNumber(value.lastPosition.y) ||
     !Array.isArray(value.visitedBuildings) ||

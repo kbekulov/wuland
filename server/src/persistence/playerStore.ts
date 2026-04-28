@@ -6,13 +6,15 @@ import {
   HOTBAR_SLOT_COUNT,
   PLAYER_MAX_HP,
   WULAND_WORLD,
-  clampWorldPosition,
+  clampMapPosition,
   isCharacterCosmetics,
   isDroppedItemNetworkState,
   isDirection,
   isGender,
+  isMapId,
   isPlayerClass,
-  isValidWorldPosition,
+  isValidMapPosition,
+  normalizeMapId,
   normalizeInventory,
   type Direction,
   type DroppedItemNetworkState,
@@ -236,7 +238,8 @@ const isStoredPlayer = (value: unknown): value is PlayerNetworkState => {
       accessory: player.accessory,
       spriteVariant: player.spriteVariant
     }) &&
-    isValidWorldPosition({ x: player.x, y: player.y }) &&
+    (player.mapId === undefined || isMapId(player.mapId)) &&
+    isValidMapPosition({ x: player.x, y: player.y }, normalizeMapId(player.mapId)) &&
     isDirection(player.direction as Direction) &&
     typeof player.moving === "boolean" &&
     typeof player.online === "boolean" &&
@@ -259,11 +262,13 @@ const isStoredPlayer = (value: unknown): value is PlayerNetworkState => {
 };
 
 const normalizeStoredPlayer = (player: PlayerNetworkState): PlayerNetworkState => {
-  const position = clampWorldPosition({ x: player.x, y: player.y });
+  const mapId = normalizeMapId(player.mapId);
+  const position = clampMapPosition({ x: player.x, y: player.y }, mapId);
 
   return {
     ...player,
     sessionId: "",
+    mapId,
     x: position.x,
     y: position.y,
     direction: isDirection(player.direction) ? player.direction : "down",
@@ -294,8 +299,14 @@ const clonePlayer = (player: PlayerNetworkState): PlayerNetworkState => ({
 });
 
 const cloneDroppedItem = (item: DroppedItemNetworkState): DroppedItemNetworkState => ({
-  ...item
+  ...item,
+  mapId: normalizeMapId(item.mapId),
+  ...clampDroppedItemPosition(item)
 });
+
+const clampDroppedItemPosition = (
+  item: DroppedItemNetworkState
+): { x: number; y: number } => clampMapPosition(item, normalizeMapId(item.mapId));
 
 const isMissingFileError = (error: unknown): boolean =>
   typeof error === "object" &&

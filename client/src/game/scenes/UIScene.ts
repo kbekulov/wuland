@@ -4,7 +4,9 @@ import {
   CLASS_METADATA,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
+  WULAND_MAP_ID,
   WULAND_MERCHANT_STOCK,
+  getMapDisplayName,
   isCakeItemDefinitionId,
   type InventorySlotState,
   type ItemDefinitionId,
@@ -48,7 +50,11 @@ export class UIScene extends Phaser.Scene {
     activeItemName: "No item",
     nearbyPickupName: "",
     nearMerchant: false,
+    nearbyPortalId: "",
+    portalPrompt: "",
     nearbyGiftPlayerName: "",
+    currentMapId: WULAND_MAP_ID,
+    currentMapName: getMapDisplayName(WULAND_MAP_ID),
     totalDroppedItems: 0
   };
   private hotbarDrag?: { slotIndex: number; startX: number; startY: number; moved: boolean };
@@ -94,6 +100,10 @@ export class UIScene extends Phaser.Scene {
           </div>
         </div>
         <div class="hud-class" data-hud-class></div>
+        <div class="hud-location">
+          <span class="eyebrow">Location</span>
+          <strong data-hud-location>WULAND</strong>
+        </div>
         <div class="hud-combat">
           <div class="hud-meter">
             <span class="eyebrow">HP</span>
@@ -196,6 +206,7 @@ export class UIScene extends Phaser.Scene {
       "[data-hud-class]",
       `${classMeta.iconText} ${classMeta.displayName} | ${classMeta.futureRole}`
     );
+    this.setText("[data-hud-location]", this.connection.currentMapName);
     this.setText(
       "[data-hud-position]",
       `x:${Math.round(this.progress.lastPosition.x)} y:${Math.round(this.progress.lastPosition.y)}`
@@ -261,6 +272,8 @@ export class UIScene extends Phaser.Scene {
 
     if (this.connection.nearMerchant) {
       hints.push("F: shop");
+    } else if (this.connection.portalPrompt) {
+      hints.push(this.connection.portalPrompt);
     } else if (this.connection.nearbyPickupName) {
       hints.push(`F: pick up ${this.connection.nearbyPickupName}`);
     }

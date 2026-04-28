@@ -5,11 +5,18 @@ import {
   ENEMY_DEFINITIONS,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
+  MAP_ID_TO_BUILDING_NAME,
+  WULAND_MAP_ID,
+  WULAND_MAPS,
   WULAND_WORLD,
   WULAND_MERCHANT,
-  clampWorldPosition,
-  collidesWithWorld,
+  clampMapPosition,
+  collidesWithMap,
+  getMapDefinition,
+  getMapDisplayName,
   isCakeItemDefinitionId,
+  portalAtPosition,
+  portalsForMap,
   type BuildingName,
   type CombatEvent,
   type Direction,
@@ -20,7 +27,9 @@ import {
   type LocalProgress,
   type MovementInput,
   type PlayerNetworkState,
-  type PlayerProfile
+  type PlayerProfile,
+  type PortalDefinition,
+  type WulandMapId
 } from "@wuland/shared";
 import {
   createInitialProgress,
@@ -115,7 +124,11 @@ export interface WulandConnectionState {
   activeItemName: string;
   nearbyPickupName: string;
   nearMerchant: boolean;
+  nearbyPortalId: string;
+  portalPrompt: string;
   nearbyGiftPlayerName: string;
+  currentMapId: WulandMapId;
+  currentMapName: string;
   totalDroppedItems: number;
 }
 
@@ -138,12 +151,14 @@ export class WulandScene extends Phaser.Scene {
   private debugKey?: Phaser.Input.Keyboard.Key;
   private room?: WulandClientRoom;
   private mobileRoot?: HTMLDivElement;
+  private worldObjects: Phaser.GameObjects.GameObject[] = [];
   private avatars = new Map<string, PlayerAvatar>();
   private enemyAvatars = new Map<string, EnemyAvatar>();
   private droppedItemAvatars = new Map<string, DroppedItemAvatar>();
   private latestPlayers = new Map<string, PlayerNetworkState>();
   private latestEnemies = new Map<string, EnemyNetworkState>();
   private latestDroppedItems = new Map<string, DroppedItemNetworkState>();
+  private currentMapId: WulandMapId = WULAND_MAP_ID;
   private connectionState: WulandConnectionState = {
     status: "connecting",
     message: "Connecting to WULAND server",
@@ -161,7 +176,11 @@ export class WulandScene extends Phaser.Scene {
     activeItemName: "No item",
     nearbyPickupName: "",
     nearMerchant: false,
+    nearbyPortalId: "",
+    portalPrompt: "",
     nearbyGiftPlayerName: "",
+    currentMapId: WULAND_MAP_ID,
+    currentMapName: getMapDisplayName(WULAND_MAP_ID),
     totalDroppedItems: 0
   };
   private selectedEnemyId = "";
@@ -209,6 +228,7 @@ export class WulandScene extends Phaser.Scene {
     this.selectedEnemyId = "";
     this.virtualInput = { ...ZERO_INPUT };
     this.clickTarget = undefined;
+    this.currentMapId = data.progress?.currentMapId ?? this.progress?.currentMapId ?? WULAND_MAP_ID;
     this.targetStartedAt = 0;
     this.lastTargetDistance = Number.POSITIVE_INFINITY;
     this.lastTargetProgressAt = 0;
@@ -231,15 +251,15 @@ export class WulandScene extends Phaser.Scene {
       activeItemName: "No item",
       nearbyPickupName: "",
       nearMerchant: false,
+      nearbyPortalId: "",
+      portalPrompt: "",
       nearbyGiftPlayerName: "",
+      currentMapId: this.currentMapId,
+      currentMapName: getMapDisplayName(this.currentMapId),
       totalDroppedItems: 0
     };
 
-    this.physics.world.setBounds(0, 0, WULAND_WORLD.width, WULAND_WORLD.height);
-    this.cameras.main.setBounds(0, 0, WULAND_WORLD.width, WULAND_WORLD.height);
-    this.cameras.main.setBackgroundColor("#6faa55");
-
-    this.drawVillage();
+    this.drawCurrentMap(this.currentMapId);
     this.createInput();
     this.mountMobileControls();
 
@@ -326,13 +346,46 @@ export class WulandScene extends Phaser.Scene {
     }
   }
 
+  private drawCurrentMap(mapId: WulandMapId): void {
+    this.clearWorldObjects();
+    this.currentMapId = mapId;
+    const map = getMapDefinition(mapId);
+    this.physics.world.setBounds(0, 0, map.width, map.height);
+    this.cameras.main.setBounds(0, 0, map.width, map.height);
+    this.cameras.main.setBackgroundColor(mapId === WULAND_MAP_ID ? "#6faa55" : "#243033");
+
+    if (mapId === WULAND_MAP_ID) {
+      this.drawVillage();
+      return;
+    }
+
+    this.drawInterior(mapId);
+  }
+
+  private addWorld<T extends Phaser.GameObjects.GameObject>(object: T): T {
+    this.worldObjects.push(object);
+    return object;
+  }
+
+  private clearWorldObjects(): void {
+    this.merchantSpeechTimer?.remove(false);
+    this.merchantSpeechTimer = undefined;
+    this.merchantBubble?.destroy();
+    this.merchantBubble = undefined;
+    this.worldObjects.forEach((object) => {
+      this.tweens.killTweensOf(object);
+      object.destroy();
+    });
+    this.worldObjects = [];
+  }
+
   private drawVillage(): void {
     this.drawGround();
     this.drawPaths();
     this.drawBoundaryFence();
     this.drawDecorations();
 
-    this.add
+    this.addWorld(this.add
       .text(WULAND_WORLD.width / 2, 92, "WULAND", {
         fontFamily: "Georgia, serif",
         fontSize: "44px",
@@ -341,10 +394,11 @@ export class WulandScene extends Phaser.Scene {
         strokeThickness: 5
       })
       .setOrigin(0.5)
-      .setDepth(5);
+      .setDepth(5));
 
     BUILDING_LAYOUT.forEach((building) => this.drawBuilding(building));
     TREE_OBSTACLES.forEach((tree) => this.drawTree(tree.x, tree.y));
+    this.drawPortalMarkers(WULAND_MAP_ID);
     this.drawMerchant();
   }
 
@@ -354,13 +408,13 @@ export class WulandScene extends Phaser.Scene {
         const key = (x / WULAND_WORLD.tileSize + y / WULAND_WORLD.tileSize) % 5 === 0
           ? "tile-grass-dark"
           : "tile-grass";
-        this.add.image(x, y, key).setOrigin(0).setDepth(0);
+        this.addWorld(this.add.image(x, y, key).setOrigin(0).setDepth(0));
       }
     }
   }
 
   private drawPaths(): void {
-    const graphics = this.add.graphics();
+    const graphics = this.addWorld(this.add.graphics());
     graphics.fillStyle(0xb9935a, 1);
     graphics.fillRect(744, 150, 112, 930);
     graphics.fillRect(230, 705, 1120, 104);
@@ -373,7 +427,7 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private drawBoundaryFence(): void {
-    const graphics = this.add.graphics();
+    const graphics = this.addWorld(this.add.graphics());
     graphics.fillStyle(0x705332, 1);
     graphics.fillRect(0, 0, WULAND_WORLD.width, 20);
     graphics.fillRect(0, WULAND_WORLD.height - 20, WULAND_WORLD.width, 20);
@@ -395,7 +449,7 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private drawDecorations(): void {
-    const graphics = this.add.graphics();
+    const graphics = this.addWorld(this.add.graphics());
     graphics.fillStyle(0x4e9c45, 1);
 
     for (let index = 0; index < 85; index += 1) {
@@ -414,26 +468,26 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private drawBuilding(building: BuildingDefinition): void {
-    this.add
+    this.addWorld(this.add
       .rectangle(building.x + 8, building.y + 10, building.width, building.height, 0x000000, 0.18)
-      .setDepth(8);
+      .setDepth(8));
 
-    this.add
+    this.addWorld(this.add
       .rectangle(building.x, building.y, building.width, building.height, building.bodyColor)
       .setStrokeStyle(3, 0x44372d)
-      .setDepth(12);
+      .setDepth(12));
 
-    this.add
+    this.addWorld(this.add
       .rectangle(building.x, building.y - building.height / 2 + 12, building.width + 26, 32, building.roofColor)
       .setStrokeStyle(3, 0x2b211c)
-      .setDepth(14);
-    this.add
+      .setDepth(14));
+    this.addWorld(this.add
       .rectangle(building.x, building.y + building.height / 2 - 23, 34, 45, 0x5c3d2e)
       .setStrokeStyle(2, 0x2d211a)
-      .setDepth(16);
-    this.add.rectangle(building.x - 55, building.y - 8, 32, 28, 0xf8f9fa).setDepth(16);
-    this.add.rectangle(building.x + 55, building.y - 8, 32, 28, 0xf8f9fa).setDepth(16);
-    this.add
+      .setDepth(16));
+    this.addWorld(this.add.rectangle(building.x - 55, building.y - 8, 32, 28, 0xf8f9fa).setDepth(16));
+    this.addWorld(this.add.rectangle(building.x + 55, building.y - 8, 32, 28, 0xf8f9fa).setDepth(16));
+    this.addWorld(this.add
       .text(building.x, building.y + building.height / 2 + 25, building.name, {
         fontFamily: "Arial, sans-serif",
         fontSize: "18px",
@@ -442,38 +496,38 @@ export class WulandScene extends Phaser.Scene {
         padding: { x: 8, y: 4 }
       })
       .setOrigin(0.5)
-      .setDepth(18);
+      .setDepth(18));
   }
 
   private drawTree(x: number, y: number): void {
-    this.add.rectangle(x, y + 20, 18, 34, 0x795a37).setDepth(10);
-    this.add.circle(x, y, 32, 0x2f7d32).setDepth(11);
-    this.add.circle(x - 18, y + 10, 22, 0x3f9b42).setDepth(11);
-    this.add.circle(x + 20, y + 12, 24, 0x2f8f3a).setDepth(11);
+    this.addWorld(this.add.rectangle(x, y + 20, 18, 34, 0x795a37).setDepth(10));
+    this.addWorld(this.add.circle(x, y, 32, 0x2f7d32).setDepth(11));
+    this.addWorld(this.add.circle(x - 18, y + 10, 22, 0x3f9b42).setDepth(11));
+    this.addWorld(this.add.circle(x + 20, y + 12, 24, 0x2f8f3a).setDepth(11));
   }
 
   private drawMerchant(): void {
     const { x, y } = WULAND_MERCHANT;
 
-    this.add.ellipse(x + 8, y + 28, 138, 34, 0x000000, 0.18).setDepth(18);
-    this.add
+    this.addWorld(this.add.ellipse(x + 8, y + 28, 138, 34, 0x000000, 0.18).setDepth(18));
+    this.addWorld(this.add
       .rectangle(x + 38, y + 6, 78, 48, 0x5b3b26, 0.98)
       .setStrokeStyle(3, 0x281914)
-      .setDepth(24);
-    this.add.rectangle(x + 38, y - 24, 86, 18, 0xc7923e, 1).setDepth(26);
-    this.add.circle(x + 4, y + 33, 13, 0x2a1d19, 1).setDepth(27);
-    this.add.circle(x + 73, y + 33, 13, 0x2a1d19, 1).setDepth(27);
-    this.add.circle(x + 4, y + 33, 6, 0xc7a46b, 1).setDepth(28);
-    this.add.circle(x + 73, y + 33, 6, 0xc7a46b, 1).setDepth(28);
-    this.add.rectangle(x + 89, y - 2, 18, 64, 0x7a5234, 1).setDepth(23);
-    this.add.circle(x - 34, y - 13, 24, 0x2b1c2f, 1).setDepth(30);
-    this.add.circle(x - 34, y - 9, 16, 0xd9b384, 1).setDepth(31);
-    this.add
+      .setDepth(24));
+    this.addWorld(this.add.rectangle(x + 38, y - 24, 86, 18, 0xc7923e, 1).setDepth(26));
+    this.addWorld(this.add.circle(x + 4, y + 33, 13, 0x2a1d19, 1).setDepth(27));
+    this.addWorld(this.add.circle(x + 73, y + 33, 13, 0x2a1d19, 1).setDepth(27));
+    this.addWorld(this.add.circle(x + 4, y + 33, 6, 0xc7a46b, 1).setDepth(28));
+    this.addWorld(this.add.circle(x + 73, y + 33, 6, 0xc7a46b, 1).setDepth(28));
+    this.addWorld(this.add.rectangle(x + 89, y - 2, 18, 64, 0x7a5234, 1).setDepth(23));
+    this.addWorld(this.add.circle(x - 34, y - 13, 24, 0x2b1c2f, 1).setDepth(30));
+    this.addWorld(this.add.circle(x - 34, y - 9, 16, 0xd9b384, 1).setDepth(31));
+    this.addWorld(this.add
       .triangle(x - 34, y + 38, -33, -30, 33, -30, 0, 38, 0x39213f, 1)
       .setStrokeStyle(3, 0x1e1224)
-      .setDepth(29);
-    this.add.rectangle(x - 62, y + 4, 22, 38, 0x765332, 1).setDepth(28);
-    this.add
+      .setDepth(29));
+    this.addWorld(this.add.rectangle(x - 62, y + 4, 22, 38, 0x765332, 1).setDepth(28));
+    this.addWorld(this.add
       .text(x + 38, y - 51, "Odd Cart", {
         fontFamily: "Arial, sans-serif",
         fontSize: "13px",
@@ -482,13 +536,221 @@ export class WulandScene extends Phaser.Scene {
         padding: { x: 7, y: 3 }
       })
       .setOrigin(0.5)
-      .setDepth(35);
+      .setDepth(35));
 
     this.merchantSpeechTimer = this.time.addEvent({
       delay: 5200,
       loop: true,
       callback: () => this.showMerchantSpeechIfNearby()
     });
+  }
+
+  private drawInterior(mapId: WulandMapId): void {
+    const map = WULAND_MAPS[mapId];
+    const palette = interiorPaletteForMap(mapId);
+    this.drawInteriorBase(map.displayName, palette.floor, palette.wall, palette.accent);
+
+    if (mapId === "rpa_coe") {
+      this.drawDesk(170, 170, "BA Desk");
+      this.drawDesk(760, 170, "Dev Desk");
+      this.drawTerminalBank(480, 132);
+      this.drawServerRack(818, 368);
+      this.drawTable(480, 364, "Sprint Table", 0x6f8795);
+    } else if (mapId === "bathroom") {
+      this.drawSinkRow();
+      this.drawBathroomStalls();
+      this.drawPropBox(200, 412, 74, 72, 0xc9d6dc, "Cart");
+      this.drawMirror(254, 88);
+    } else if (mapId === "kitchen") {
+      this.drawCounter(344, 124, 500, "Prep Counter");
+      this.drawPropBox(744, 140, 82, 104, 0xdce7ef, "Fridge");
+      this.drawPropBox(845, 136, 74, 86, 0x4b5563, "Stove");
+      this.drawTable(471, 350, "Lunch Table", 0xb77948);
+      this.drawCounter(209, 522, 210, "Coffee");
+    } else if (mapId === "busybeet") {
+      this.drawNoticeBoard(218, 106);
+      this.drawDesk(238, 244, "Focus");
+      this.drawDesk(726, 244, "Flow");
+      this.drawTable(481, 410, "Honeycomb", 0xeab308);
+      this.drawPropBox(820, 478, 76, 92, 0x7c3aed, "Hive");
+    } else if (mapId === "din_break") {
+      this.drawCouch(229, 207, 0x3f8f6b);
+      this.drawCouch(731, 207, 0x597fb8);
+      this.drawTable(480, 350, "Coffee Table", 0x8b6f47);
+      this.drawPropBox(796, 469, 72, 134, 0xbe123c, "Vend");
+      this.drawCounter(229, 520, 226, "Snacks");
+    }
+
+    this.drawPortalMarkers(mapId);
+  }
+
+  private drawInteriorBase(
+    title: string,
+    floorColor: number,
+    wallColor: number,
+    accentColor: number
+  ): void {
+    const map = getMapDefinition(this.currentMapId);
+    const graphics = this.addWorld(this.add.graphics());
+    graphics.fillStyle(floorColor, 1);
+    graphics.fillRect(0, 0, map.width, map.height);
+
+    for (let y = 32; y < map.height - 32; y += 32) {
+      for (let x = 32; x < map.width - 32; x += 32) {
+        if ((x / 32 + y / 32) % 2 === 0) {
+          graphics.fillStyle(0xffffff, 0.035);
+          graphics.fillRect(x, y, 32, 32);
+        }
+      }
+    }
+
+    graphics.fillStyle(wallColor, 1);
+    graphics.fillRect(0, 0, map.width, 32);
+    graphics.fillRect(0, map.height - 32, 430, 32);
+    graphics.fillRect(530, map.height - 32, 430, 32);
+    graphics.fillRect(0, 0, 32, map.height);
+    graphics.fillRect(map.width - 32, 0, 32, map.height);
+    graphics.fillStyle(accentColor, 1);
+    graphics.fillRect(32, 32, map.width - 64, 10);
+    graphics.setDepth(2);
+
+    this.addWorld(this.add
+      .rectangle(480, 686, 100, 52, 0x5c3d2e, 1)
+      .setStrokeStyle(3, 0xf7e6b7, 0.9)
+      .setDepth(13));
+    this.addWorld(this.add
+      .text(480, 74, title, {
+        fontFamily: "Georgia, serif",
+        fontSize: "32px",
+        color: "#fff8e7",
+        stroke: "#172224",
+        strokeThickness: 4
+      })
+      .setOrigin(0.5)
+      .setDepth(15));
+  }
+
+  private drawPortalMarkers(mapId: WulandMapId): void {
+    portalsForMap(mapId).forEach((portal) => {
+      const centerX = portal.sourceRect.x + portal.sourceRect.width / 2;
+      const centerY = portal.sourceRect.y + portal.sourceRect.height / 2;
+      this.addWorld(this.add
+        .rectangle(centerX, centerY, portal.sourceRect.width, portal.sourceRect.height, 0xfef08a, 0.14)
+        .setStrokeStyle(2, 0xfff3bf, 0.75)
+        .setDepth(34));
+      const arrowY = portal.fromMapId === WULAND_MAP_ID
+        ? portal.sourceRect.y - 18
+        : portal.sourceRect.y - 20;
+      const arrow = this.addWorld(this.add
+        .triangle(centerX, arrowY, -14, -11, 14, -11, 0, 13, 0xfff3bf, 1)
+        .setStrokeStyle(2, 0x442d12, 0.9)
+        .setDepth(36));
+      this.addWorld(this.add
+        .text(centerX, arrowY - 22, portal.label, {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "12px",
+          color: "#1b1c1d",
+          backgroundColor: "#fff3bf",
+          padding: { x: 6, y: 3 }
+        })
+        .setOrigin(0.5)
+        .setDepth(37));
+      this.tweens.add({
+        targets: arrow,
+        y: arrow.y - 8,
+        yoyo: true,
+        repeat: -1,
+        duration: 720,
+        ease: "Sine.easeInOut"
+      });
+    });
+  }
+
+  private drawDesk(x: number, y: number, label: string): void {
+    this.drawPropBox(x, y, 164, 72, 0x6b4f35, label);
+    this.addWorld(this.add.rectangle(x - 42, y - 6, 34, 22, 0x223348, 1).setDepth(17));
+    this.addWorld(this.add.rectangle(x - 42, y - 18, 40, 8, 0x74c0fc, 1).setDepth(18));
+  }
+
+  private drawTerminalBank(x: number, y: number): void {
+    this.drawPropBox(x, y, 184, 74, 0x2f3f52, "Bot Station");
+    [-52, 0, 52].forEach((offset) => {
+      this.addWorld(this.add.rectangle(x + offset, y - 8, 34, 24, 0x74c0fc, 1).setDepth(18));
+    });
+  }
+
+  private drawServerRack(x: number, y: number): void {
+    this.drawPropBox(x, y, 58, 164, 0x1f2937, "Rack");
+    [-48, -20, 8, 36].forEach((offset) => {
+      this.addWorld(this.add.circle(x, y + offset, 4, 0x91f2bd, 1).setDepth(19));
+    });
+  }
+
+  private drawSinkRow(): void {
+    this.drawPropBox(254, 155, 272, 58, 0xdce7ef, "Sinks");
+    [174, 254, 334].forEach((x) => {
+      this.addWorld(this.add.circle(x, 156, 18, 0xf8fbff, 1).setDepth(18));
+      this.addWorld(this.add.rectangle(x, 136, 18, 8, 0x94a3b8, 1).setDepth(19));
+    });
+  }
+
+  private drawBathroomStalls(): void {
+    [659, 759].forEach((x, index) => {
+      this.drawPropBox(x, 183, 78, 170, 0x86a9b8, `Stall ${index + 1}`);
+      this.addWorld(this.add.rectangle(x, 218, 36, 56, 0x5f7f8f, 1).setDepth(18));
+    });
+  }
+
+  private drawMirror(x: number, y: number): void {
+    this.addWorld(this.add
+      .rectangle(x, y, 272, 28, 0xbfeaf5, 0.9)
+      .setStrokeStyle(2, 0xe9fbff, 0.95)
+      .setDepth(18));
+  }
+
+  private drawCounter(x: number, y: number, width: number, label: string): void {
+    this.drawPropBox(x, y, width, 56, 0x8a613f, label);
+  }
+
+  private drawTable(x: number, y: number, label: string, color: number): void {
+    this.drawPropBox(x, y, 208, 78, color, label);
+    this.addWorld(this.add.circle(x - 56, y + 54, 12, 0x1f2937, 1).setDepth(16));
+    this.addWorld(this.add.circle(x + 56, y + 54, 12, 0x1f2937, 1).setDepth(16));
+  }
+
+  private drawNoticeBoard(x: number, y: number): void {
+    this.drawPropBox(x, y, 228, 46, 0xfacc15, "Notice Board");
+    this.addWorld(this.add.rectangle(x - 46, y, 34, 28, 0xfffbeb, 1).setDepth(18));
+    this.addWorld(this.add.rectangle(x + 28, y, 56, 28, 0xfffbeb, 1).setDepth(18));
+  }
+
+  private drawCouch(x: number, y: number, color: number): void {
+    this.drawPropBox(x, y, 210, 74, color, "Couch");
+    this.addWorld(this.add.rectangle(x, y - 26, 190, 24, color, 1).setDepth(18));
+  }
+
+  private drawPropBox(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    color: number,
+    label: string
+  ): void {
+    this.addWorld(this.add
+      .rectangle(x, y, width, height, color, 0.96)
+      .setStrokeStyle(3, 0x172224, 0.82)
+      .setDepth(16));
+    this.addWorld(this.add
+      .text(x, y + height / 2 + 14, label, {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "11px",
+        color: "#fff8e7",
+        backgroundColor: "rgba(16, 24, 26, 0.74)",
+        padding: { x: 5, y: 2 }
+      })
+      .setOrigin(0.5)
+      .setDepth(18));
   }
 
   private showMerchantSpeechIfNearby(): void {
@@ -725,6 +987,12 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private interactOrPickup(): void {
+    if (this.connectionState.nearbyPortalId) {
+      this.room?.send("usePortal", { portalId: this.connectionState.nearbyPortalId });
+      this.clearClickTarget(true);
+      return;
+    }
+
     if (this.connectionState.nearMerchant) {
       this.game.events.emit("wuland:openMerchantShop");
       return;
@@ -782,9 +1050,9 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private setClickTarget(x: number, y: number): void {
-    const target = clampWorldPosition({ x, y });
+    const target = clampMapPosition({ x, y }, this.currentMapId);
 
-    if (collidesWithWorld(target)) {
+    if (collidesWithMap(target, this.currentMapId)) {
       this.showFloatingText(target.x, target.y, "blocked", "#ffd8a8");
       return;
     }
@@ -864,33 +1132,59 @@ export class WulandScene extends Phaser.Scene {
     }
   }
 
-  private handleRoomState(state: WulandRoomState): void {
-    if (!this.sceneActive) {
+  private handleRoomState(state?: WulandRoomState): void {
+    if (!this.sceneActive || !state) {
       return;
     }
 
-    const seenPlayers = new Set<string>();
-    const seenEnemies = new Set<string>();
-    const seenDroppedItems = new Set<string>();
     this.latestPlayers.clear();
     this.latestEnemies.clear();
     this.latestDroppedItems.clear();
     state.players?.forEach((playerSchema) => {
       const player = snapshotPlayer(playerSchema);
-      seenPlayers.add(player.playerId);
       this.latestPlayers.set(player.playerId, player);
+    });
+    const localPlayer = this.latestPlayers.get(this.profile.playerId);
+    const activeMapId = localPlayer?.mapId ?? this.currentMapId;
+    this.markCurrentInteriorVisited(activeMapId);
+
+    if (activeMapId !== this.currentMapId) {
+      this.clearClickTarget(true);
+      this.selectedEnemyId = "";
+      this.drawCurrentMap(activeMapId);
+      this.showMapTransition();
+    }
+
+    const seenPlayers = new Set<string>();
+    const seenEnemies = new Set<string>();
+    const seenDroppedItems = new Set<string>();
+
+    this.latestPlayers.forEach((player) => {
+      if (player.mapId !== activeMapId) {
+        return;
+      }
+
+      seenPlayers.add(player.playerId);
       this.renderPlayer(player);
     });
     state.enemies?.forEach((enemySchema) => {
       const enemy = snapshotEnemy(enemySchema);
-      seenEnemies.add(enemy.enemyId);
       this.latestEnemies.set(enemy.enemyId, enemy);
+      if (enemy.mapId !== activeMapId) {
+        return;
+      }
+
+      seenEnemies.add(enemy.enemyId);
       this.renderEnemy(enemy);
     });
     state.droppedItems?.forEach((itemSchema) => {
       const item = snapshotDroppedItem(itemSchema);
-      seenDroppedItems.add(item.droppedItemId);
       this.latestDroppedItems.set(item.droppedItemId, item);
+      if (item.mapId !== activeMapId) {
+        return;
+      }
+
+      seenDroppedItems.add(item.droppedItemId);
       this.renderDroppedItem(item);
     });
 
@@ -908,7 +1202,6 @@ export class WulandScene extends Phaser.Scene {
       }
     }
 
-    const localPlayer = this.latestPlayers.get(this.profile.playerId);
     for (const [droppedItemId, avatar] of this.droppedItemAvatars) {
       if (!seenDroppedItems.has(droppedItemId)) {
         this.destroyDroppedItemAvatar(avatar);
@@ -936,6 +1229,8 @@ export class WulandScene extends Phaser.Scene {
       inventory,
       selectedHotbarSlot,
       activeItemName,
+      currentMapId: activeMapId,
+      currentMapName: getMapDisplayName(activeMapId),
       totalDroppedItems: state.totalDroppedItems ?? seenDroppedItems.size
     });
   }
@@ -1199,7 +1494,12 @@ export class WulandScene extends Phaser.Scene {
     const nearbyPickupName = nearby
       ? ITEM_DEFINITIONS[nearby.itemDefinitionId].displayName
       : "";
-    const nearMerchant = distanceBetween(player, WULAND_MERCHANT) <= WULAND_MERCHANT.interactionRange;
+    const nearbyPortal = nearbyPortalClient(player, 72);
+    const nearbyPortalId = nearbyPortal?.id ?? "";
+    const portalPrompt = nearbyPortal ? `Press F to ${nearbyPortal.label}` : "";
+    const nearMerchant =
+      player.mapId === WULAND_MAP_ID &&
+      distanceBetween(player, WULAND_MERCHANT) <= WULAND_MERCHANT.interactionRange;
     const selectedItem = player.inventory[player.selectedHotbarSlot];
     const canGift =
       Boolean(selectedItem?.itemDefinitionId) &&
@@ -1211,11 +1511,15 @@ export class WulandScene extends Phaser.Scene {
 
     if (
       nearbyPickupName !== this.connectionState.nearbyPickupName ||
+      nearbyPortalId !== this.connectionState.nearbyPortalId ||
+      portalPrompt !== this.connectionState.portalPrompt ||
       nearMerchant !== this.connectionState.nearMerchant ||
       nearbyGiftPlayerName !== this.connectionState.nearbyGiftPlayerName
     ) {
       this.setConnectionState({
         nearbyPickupName,
+        nearbyPortalId,
+        portalPrompt,
         nearMerchant,
         nearbyGiftPlayerName
       });
@@ -1223,6 +1527,10 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private updateVisitedBuildings(player: PlayerNetworkState): void {
+    if (player.mapId !== WULAND_MAP_ID) {
+      return;
+    }
+
     BUILDING_LAYOUT.forEach((building) => {
       if (this.visitedBuildings.has(building.name)) {
         return;
@@ -1237,6 +1545,14 @@ export class WulandScene extends Phaser.Scene {
         this.markBuildingVisited(building.name);
       }
     });
+  }
+
+  private markCurrentInteriorVisited(mapId: WulandMapId): void {
+    const buildingName = MAP_ID_TO_BUILDING_NAME[mapId];
+
+    if (buildingName) {
+      this.markBuildingVisited(buildingName);
+    }
   }
 
   private markBuildingVisited(name: BuildingName): void {
@@ -1279,6 +1595,10 @@ export class WulandScene extends Phaser.Scene {
 
   private handleCombatEvent(event: CombatEvent): void {
     if (!this.sceneActive) {
+      return;
+    }
+
+    if (event.mapId && event.mapId !== this.currentMapId) {
       return;
     }
 
@@ -1371,11 +1691,25 @@ export class WulandScene extends Phaser.Scene {
     });
   }
 
+  private showMapTransition(): void {
+    this.cameras.main.flash(280, 255, 248, 220);
+    this.showFloatingText(
+      this.cameras.main.midPoint.x,
+      this.cameras.main.midPoint.y,
+      getMapDisplayName(this.currentMapId),
+      "#fff3bf"
+    );
+  }
+
   private enemyAtWorldPoint(x: number, y: number): EnemyNetworkState | null {
     let best: EnemyNetworkState | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
 
     this.latestEnemies.forEach((enemy) => {
+      if (enemy.mapId !== this.currentMapId) {
+        return;
+      }
+
       const definition = ENEMY_DEFINITIONS[enemy.type];
       const distanceToEnemy = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
 
@@ -1407,6 +1741,7 @@ export class WulandScene extends Phaser.Scene {
 
     this.progress = {
       playerId: this.profile.playerId,
+      currentMapId: localPlayer?.mapId ?? this.currentMapId,
       lastPosition: position,
       visitedBuildings: BUILDING_NAMES.filter((building) => this.visitedBuildings.has(building)),
       updatedAt: new Date().toISOString()
@@ -1474,10 +1809,7 @@ export class WulandScene extends Phaser.Scene {
     this.mobileRoot?.remove();
     this.mobileRoot = undefined;
     document.body.removeAttribute("data-touch-controls");
-    this.merchantSpeechTimer?.remove(false);
-    this.merchantSpeechTimer = undefined;
-    this.merchantBubble?.destroy();
-    this.merchantBubble = undefined;
+    this.clearWorldObjects();
     this.destinationMarker?.destroy();
     this.destinationMarker = undefined;
     this.avatars.forEach((avatar) => this.destroyAvatar(avatar));
@@ -1556,6 +1888,7 @@ const snapshotPlayer = (player: PlayerNetworkState): PlayerNetworkState => ({
   outfitColor: player.outfitColor,
   accessory: player.accessory,
   spriteVariant: player.spriteVariant,
+  mapId: player.mapId ?? WULAND_MAP_ID,
   x: player.x,
   y: player.y,
   direction: player.direction,
@@ -1582,6 +1915,7 @@ const snapshotEnemy = (enemy: EnemyNetworkState): EnemyNetworkState => ({
   enemyId: enemy.enemyId,
   type: enemy.type,
   name: enemy.name,
+  mapId: enemy.mapId ?? WULAND_MAP_ID,
   x: enemy.x,
   y: enemy.y,
   spawnX: enemy.spawnX,
@@ -1601,7 +1935,7 @@ const snapshotDroppedItem = (item: DroppedItemNetworkState): DroppedItemNetworkS
   itemDefinitionId: item.itemDefinitionId,
   itemInstanceId: item.itemInstanceId,
   quantity: item.quantity,
-  mapId: item.mapId,
+  mapId: item.mapId ?? WULAND_MAP_ID,
   x: item.x,
   y: item.y,
   droppedByPlayerId: item.droppedByPlayerId,
@@ -1665,7 +1999,7 @@ const countAliveEnemies = (enemies: Map<string, EnemyNetworkState>): number => {
 };
 
 const nearestDroppedItemClient = (
-  position: { x: number; y: number },
+  position: { x: number; y: number; mapId: WulandMapId },
   droppedItems: Map<string, DroppedItemNetworkState>,
   range: number
 ): DroppedItemNetworkState | null => {
@@ -1673,6 +2007,10 @@ const nearestDroppedItemClient = (
   let bestDistance = Number.POSITIVE_INFINITY;
 
   droppedItems.forEach((item) => {
+    if (item.mapId !== position.mapId) {
+      return;
+    }
+
     const distanceToItem = Phaser.Math.Distance.Between(position.x, position.y, item.x, item.y);
 
     if (distanceToItem <= range && distanceToItem < bestDistance) {
@@ -1697,7 +2035,8 @@ const nearestGiftPlayerClient = (
       player.playerId === giver.playerId ||
       !player.online ||
       player.sleeping ||
-      player.defeated
+      player.defeated ||
+      player.mapId !== giver.mapId
     ) {
       return;
     }
@@ -1711,6 +2050,57 @@ const nearestGiftPlayerClient = (
   });
 
   return best;
+};
+
+const nearbyPortalClient = (
+  player: PlayerNetworkState,
+  range: number
+): PortalDefinition | null => {
+  const direct = portalAtPosition(player.mapId, player);
+
+  if (direct) {
+    return direct;
+  }
+
+  let best: PortalDefinition | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  portalsForMap(player.mapId).forEach((portal) => {
+    const center = {
+      x: portal.sourceRect.x + portal.sourceRect.width / 2,
+      y: portal.sourceRect.y + portal.sourceRect.height / 2
+    };
+    const distanceToPortal = distanceBetween(player, center);
+
+    if (distanceToPortal <= range && distanceToPortal < bestDistance) {
+      best = portal;
+      bestDistance = distanceToPortal;
+    }
+  });
+
+  return best;
+};
+
+const interiorPaletteForMap = (
+  mapId: WulandMapId
+): { floor: number; wall: number; accent: number } => {
+  if (mapId === "rpa_coe") {
+    return { floor: 0x425466, wall: 0x1f2f3c, accent: 0x74c0fc };
+  }
+
+  if (mapId === "bathroom") {
+    return { floor: 0xbfdbe5, wall: 0x4c7f91, accent: 0xe9fbff };
+  }
+
+  if (mapId === "kitchen") {
+    return { floor: 0xd9a76d, wall: 0x7c3f1d, accent: 0xffec99 };
+  }
+
+  if (mapId === "busybeet") {
+    return { floor: 0x5f5134, wall: 0x3f321d, accent: 0xfacc15 };
+  }
+
+  return { floor: 0x637a55, wall: 0x33432f, accent: 0xd8f5a2 };
 };
 
 const distanceBetween = (

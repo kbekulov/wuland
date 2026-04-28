@@ -575,6 +575,20 @@ label span,
   line-height: 1.25;
 }
 
+.hud-location {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  border-radius: 8px;
+  background: rgba(255, 243, 191, 0.12);
+  color: #fff8e7;
+  padding: 8px 10px;
+}
+
+.hud-location strong {
+  font-size: 14px;
+}
+
 .hud-combat {
   display: grid;
   gap: 9px;
@@ -1069,6 +1083,7 @@ body[data-touch-controls] .mobile-controls {
   }
 
   .hud-class,
+  .hud-location,
   .hud-network,
   .hud-active-item,
   .hud-hint,

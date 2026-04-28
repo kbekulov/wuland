@@ -10,7 +10,6 @@ import {
   PLAYER_MAX_HP,
   PLAYER_MOVE_SPEED,
   PLAYER_RESPAWN_MS,
-  WULAND_COLLISION_RECTS,
   WULAND_ENEMY_SPAWNS,
   WULAND_MAP_ID,
   WULAND_MERCHANT,
@@ -18,9 +17,12 @@ import {
   WULAND_WORLD,
   applyServerMovement,
   applyServerVectorMovement,
+  clampMapPosition,
   clampWorldPosition,
   collidesWithWorld,
   createItemInstanceId,
+  getMapCollisionRects,
+  getMapDefinition,
   isBuyItemRequest,
   isCakeItemDefinitionId,
   isCombatRequest,
@@ -31,10 +33,14 @@ import {
   isMoveTargetRequest,
   isMovementInput,
   isPickupItemRequest,
+  isPortalTransitionRequest,
   isValidLocalProgress,
+  isValidMapPosition,
   isValidPlayerProfile,
-  isValidWorldPosition,
+  normalizeMapId,
   normalizeInventory,
+  portalAtPosition,
+  portalsForMap,
   type CombatEvent,
   type CombatRequest,
   type Direction,
@@ -49,7 +55,9 @@ import {
   type MoveTargetRequest,
   type PlayerNetworkState,
   type PlayerProfile,
+  type PortalDefinition,
   type WorldPosition,
+  type WulandMapId,
   type WulandJoinOptions
 } from "@wuland/shared";
 import { PlayerStore } from "../persistence/playerStore.js";
@@ -68,6 +76,7 @@ const BASIC_FACING_DOT = Math.cos((85 * Math.PI) / 180);
 const WEAPON_ATTACK_COOLDOWN_MS = 420;
 const PICKUP_RANGE = 66;
 const GIFT_RANGE = 78;
+const PORTAL_INTERACT_RANGE = 84;
 const DROP_OFFSET = 34;
 
 export class WulandInventorySlotSchema extends Schema {
@@ -89,6 +98,7 @@ export class WulandPlayerSchema extends Schema {
   @type("string") outfitColor = "";
   @type("string") accessory = "";
   @type("string") spriteVariant = "";
+  @type("string") mapId: WulandMapId = WULAND_MAP_ID;
   @type("number") x = WULAND_WORLD.defaultSpawn.x;
   @type("number") y = WULAND_WORLD.defaultSpawn.y;
   @type("string") direction: Direction = "down";
@@ -115,6 +125,7 @@ export class WulandEnemySchema extends Schema {
   @type("string") enemyId = "";
   @type("string") type = "";
   @type("string") name = "";
+  @type("string") mapId: WulandMapId = WULAND_MAP_ID;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("number") spawnX = 0;
@@ -134,7 +145,7 @@ export class WulandDroppedItemSchema extends Schema {
   @type("string") itemDefinitionId = "";
   @type("string") itemInstanceId = "";
   @type("number") quantity = 1;
-  @type("string") mapId = WULAND_MAP_ID;
+  @type("string") mapId: WulandMapId = WULAND_MAP_ID;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("string") droppedByPlayerId = "";
@@ -210,7 +221,9 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
-      this.moveTargets.set(playerId, clampWorldPosition(message));
+      const player = this.state.players.get(playerId);
+      const mapId = normalizeMapId(player?.mapId);
+      this.moveTargets.set(playerId, clampMapPosition(message, mapId));
     });
 
     this.onMessage("clearMoveTarget", (client) => {
@@ -219,6 +232,19 @@ export class WulandRoom extends Room<WulandRoomState> {
       if (playerId) {
         this.moveTargets.delete(playerId);
       }
+    });
+
+    this.onMessage("usePortal", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isPortalTransitionRequest(message)) {
+        return;
+      }
+
+      this.usePortal(
+        playerId,
+        (message as { portalId?: string } | null | undefined)?.portalId
+      );
     });
 
     this.onMessage("attack", (client, message: unknown) => {
@@ -336,18 +362,35 @@ export class WulandRoom extends Room<WulandRoomState> {
     const now = new Date().toISOString();
     const existing = this.state.players.get(options.profile.playerId);
     const stored = this.playerStore.get(options.profile.playerId);
+    const storedMapId = normalizeMapId(stored?.mapId);
+    const existingMapId = normalizeMapId(existing?.mapId);
+    const localMapId = normalizeMapId(options.localProgress?.currentMapId);
+    const mapId =
+      (stored && isValidMapPosition({ x: stored.x, y: stored.y }, storedMapId)
+        ? storedMapId
+        : null) ??
+      (existing && isValidMapPosition({ x: existing.x, y: existing.y }, existingMapId)
+        ? existingMapId
+        : null) ??
+      (options.localProgress &&
+      isValidMapPosition(options.localProgress.lastPosition, localMapId)
+        ? localMapId
+        : null) ??
+      WULAND_MAP_ID;
     const preferredPosition =
-      (stored && isValidWorldPosition({ x: stored.x, y: stored.y })
+      (stored && mapId === storedMapId && isValidMapPosition({ x: stored.x, y: stored.y }, mapId)
         ? { x: stored.x, y: stored.y }
         : null) ??
-      (existing && isValidWorldPosition({ x: existing.x, y: existing.y })
+      (existing && mapId === existingMapId && isValidMapPosition({ x: existing.x, y: existing.y }, mapId)
         ? { x: existing.x, y: existing.y }
         : null) ??
-      (options.localProgress && isValidWorldPosition(options.localProgress.lastPosition)
+      (options.localProgress &&
+      mapId === localMapId &&
+      isValidMapPosition(options.localProgress.lastPosition, mapId)
         ? options.localProgress.lastPosition
         : null) ??
-      WULAND_WORLD.defaultSpawn;
-    const position = clampWorldPosition(preferredPosition);
+      getMapDefinition(mapId).defaultSpawn;
+    const position = clampMapPosition(preferredPosition, mapId);
     const player = existing ?? new WulandPlayerSchema();
     const existingRecord = existing ? recordFromSchema(existing) : null;
     const inventory = stored?.inventory ?? existingRecord?.inventory;
@@ -359,6 +402,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       stored?.selectedHotbarSlot ?? existingRecord?.selectedHotbarSlot ?? player.selectedHotbarSlot
     );
     player.sessionId = client.sessionId;
+    player.mapId = mapId;
     player.x = position.x;
     player.y = position.y;
     player.direction = existing?.direction ?? stored?.direction ?? "down";
@@ -426,6 +470,7 @@ export class WulandRoom extends Room<WulandRoomState> {
         player.moving = false;
 
         if (player.respawnAt > 0 && now >= player.respawnAt) {
+          player.mapId = WULAND_MAP_ID;
           player.x = WULAND_WORLD.defaultSpawn.x;
           player.y = WULAND_WORLD.defaultSpawn.y;
           player.hp = player.maxHp;
@@ -448,6 +493,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       player.moving = result.moving;
       player.lastSeenAt = timestamp;
 
+      this.transitionThroughPortalIfNeeded(player);
       this.persistIfNeeded(player);
       anyCountChange = true;
     });
@@ -465,6 +511,9 @@ export class WulandRoom extends Room<WulandRoomState> {
     deltaMs: number
   ): { position: WorldPosition; moving: boolean; direction: Direction } {
     const hasDirectInput = input.left || input.right || input.up || input.down;
+    const mapId = normalizeMapId(player.mapId);
+    const map = getMapDefinition(mapId);
+    const collisions = getMapCollisionRects(mapId);
 
     if (hasDirectInput) {
       this.moveTargets.delete(player.playerId);
@@ -472,7 +521,8 @@ export class WulandRoom extends Room<WulandRoomState> {
         { x: player.x, y: player.y },
         input,
         deltaMs,
-        WULAND_COLLISION_RECTS
+        collisions,
+        map
       );
     }
 
@@ -483,7 +533,8 @@ export class WulandRoom extends Room<WulandRoomState> {
         { x: player.x, y: player.y },
         ZERO_INPUT,
         deltaMs,
-        WULAND_COLLISION_RECTS
+        collisions,
+        map
       );
     }
 
@@ -511,7 +562,8 @@ export class WulandRoom extends Room<WulandRoomState> {
       vector,
       Math.min(deltaMs, (distanceToTarget / PLAYER_MOVE_SPEED) * 1000),
       player.direction,
-      WULAND_COLLISION_RECTS
+      collisions,
+      map
     );
     const movedDistance = distance({ x: player.x, y: player.y }, result.position);
 
@@ -533,7 +585,7 @@ export class WulandRoom extends Room<WulandRoomState> {
 
   private spawnInitialEnemies(): void {
     WULAND_ENEMY_SPAWNS.forEach((spawn) => {
-      this.state.enemies.set(spawn.id, enemyFromSpawn(spawn.id, spawn.type, spawn.x, spawn.y));
+      this.state.enemies.set(spawn.id, enemyFromSpawn(spawn.id, spawn.type, spawn.x, spawn.y, spawn.mapId));
     });
   }
 
@@ -592,6 +644,10 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
+      if (normalizeMapId(player.mapId) !== normalizeMapId(enemy.mapId)) {
+        return;
+      }
+
       const distanceToEnemy = distance(enemy, player);
 
       if (distanceToEnemy > definition.aggroRange) {
@@ -628,21 +684,24 @@ export class WulandRoom extends Room<WulandRoomState> {
       x: dx / length,
       y: dy / length
     };
+    const mapId = normalizeMapId(enemy.mapId);
+    const map = getMapDefinition(mapId);
+    const collisions = getMapCollisionRects(mapId);
     let next = clampWorldPosition({
       x: enemy.x + vector.x * distanceToMove,
       y: enemy.y
-    });
+    }, map);
 
-    if (collidesWithWorld(next, WULAND_COLLISION_RECTS)) {
+    if (collidesWithWorld(next, collisions)) {
       next = { x: enemy.x, y: enemy.y };
     }
 
     next = clampWorldPosition({
       x: next.x,
       y: next.y + vector.y * distanceToMove
-    });
+    }, map);
 
-    if (collidesWithWorld(next, WULAND_COLLISION_RECTS)) {
+    if (collidesWithWorld(next, collisions)) {
       next = { x: next.x, y: enemy.y };
     }
 
@@ -746,6 +805,7 @@ export class WulandRoom extends Room<WulandRoomState> {
 
       if (
         requested?.alive &&
+        normalizeMapId(requested.mapId) === normalizeMapId(player.mapId) &&
         distance(player, requested) <= range &&
         (itemDefinition.attackShape !== "arc" || isInFrontArc(player, requested, request.direction ?? player.direction))
       ) {
@@ -760,6 +820,10 @@ export class WulandRoom extends Room<WulandRoomState> {
 
     this.state.enemies.forEach((enemy) => {
       if (!enemy.alive) {
+        return;
+      }
+
+      if (normalizeMapId(enemy.mapId) !== normalizeMapId(player.mapId)) {
         return;
       }
 
@@ -846,6 +910,59 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.broadcastCombatEvent("player-defeated", sourceId, player.playerId, player.x, player.y, 0, "defeated", "#ff8787");
   }
 
+  private usePortal(playerId: string, requestedPortalId?: string): void {
+    const player = this.state.players.get(playerId);
+
+    if (!player || !canFight(player)) {
+      return;
+    }
+
+    const mapId = normalizeMapId(player.mapId);
+    const portal = requestedPortalId
+      ? portalsForMap(mapId).find((candidate) => candidate.id === requestedPortalId) ?? null
+      : portalAtPosition(mapId, player);
+
+    if (!portal || !isPlayerNearPortal(player, portal)) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "No door nearby", "#ffd8a8");
+      return;
+    }
+
+    this.transitionPlayer(player, portal);
+  }
+
+  private transitionThroughPortalIfNeeded(player: WulandPlayerSchema): void {
+    if (!canFight(player)) {
+      return;
+    }
+
+    const portal = portalAtPosition(normalizeMapId(player.mapId), player);
+
+    if (portal) {
+      this.transitionPlayer(player, portal);
+    }
+  }
+
+  private transitionPlayer(player: WulandPlayerSchema, portal: PortalDefinition): void {
+    player.mapId = portal.toMapId;
+    const destination = clampMapPosition(portal.destination, portal.toMapId);
+    player.x = destination.x;
+    player.y = destination.y;
+    player.moving = false;
+    this.inputs.set(player.playerId, { ...ZERO_INPUT });
+    this.moveTargets.delete(player.playerId);
+    this.persistPlayer(player);
+    this.broadcastCombatEvent(
+      "notice",
+      player.playerId,
+      player.playerId,
+      player.x,
+      player.y,
+      0,
+      portal.toMapId === WULAND_MAP_ID ? "Entered WULAND" : `Entered ${portal.label.replace("enter ", "")}`,
+      "#d8f5a2"
+    );
+  }
+
   private selectHotbarSlot(playerId: string, slotIndex: number): void {
     const player = this.state.players.get(playerId);
 
@@ -892,16 +1009,17 @@ export class WulandRoom extends Room<WulandRoomState> {
       return;
     }
 
-    const dropPosition = clampWorldPosition({
+    const mapId = normalizeMapId(player.mapId);
+    const dropPosition = clampMapPosition({
       x: player.x + vectorForDirection(player.direction).x * DROP_OFFSET,
       y: player.y + vectorForDirection(player.direction).y * DROP_OFFSET
-    });
+    }, mapId);
     const droppedItem = droppedItemFromRecord({
       droppedItemId: `drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       itemDefinitionId: item.itemDefinitionId,
       itemInstanceId: item.itemInstanceId,
       quantity: item.quantity,
-      mapId: WULAND_MAP_ID,
+      mapId,
       x: dropPosition.x,
       y: dropPosition.y,
       droppedByPlayerId: player.playerId,
@@ -977,7 +1095,11 @@ export class WulandRoom extends Room<WulandRoomState> {
       ? this.state.droppedItems.get(requestedDroppedItemId)
       : nearestDroppedItem(player, this.state.droppedItems, PICKUP_RANGE);
 
-    if (!droppedItem || distance(player, droppedItem) > PICKUP_RANGE) {
+    if (
+      !droppedItem ||
+      droppedItem.mapId !== normalizeMapId(player.mapId) ||
+      distance(player, droppedItem) > PICKUP_RANGE
+    ) {
       this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "No item nearby", "#ffd8a8");
       return;
     }
@@ -1062,6 +1184,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       receiver.playerId === giver.playerId ||
       !receiver.online ||
       receiver.sleeping ||
+      normalizeMapId(receiver.mapId) !== normalizeMapId(giver.mapId) ||
       distance(giver, receiver) > GIFT_RANGE
     ) {
       this.broadcastCombatEvent("notice", giver.playerId, giver.playerId, giver.x, giver.y, 0, "No teammate nearby", "#ffd8a8");
@@ -1073,7 +1196,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       itemDefinitionId: item.itemDefinitionId,
       itemInstanceId: createItemInstanceId(item.itemDefinitionId, `${giver.playerId}-gift-${Date.now()}`),
       quantity: 1,
-      mapId: WULAND_MAP_ID,
+      mapId: normalizeMapId(receiver.mapId),
       x: receiver.x,
       y: receiver.y,
       droppedByPlayerId: giver.playerId,
@@ -1126,6 +1249,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       type,
       sourceId,
       targetId,
+      mapId: this.mapIdForCombatEvent(sourceId, targetId),
       x,
       y,
       value,
@@ -1133,6 +1257,18 @@ export class WulandRoom extends Room<WulandRoomState> {
       color,
       itemDefinitionId
     } satisfies CombatEvent);
+  }
+
+  private mapIdForCombatEvent(sourceId: string, targetId: string): WulandMapId {
+    return normalizeMapId(
+      this.state.players.get(sourceId)?.mapId ??
+      this.state.players.get(targetId)?.mapId ??
+      this.state.enemies.get(sourceId)?.mapId ??
+      this.state.enemies.get(targetId)?.mapId ??
+      this.state.droppedItems.get(sourceId)?.mapId ??
+      this.state.droppedItems.get(targetId)?.mapId ??
+      WULAND_MAP_ID
+    );
   }
 
   private persistIfNeeded(player: WulandPlayerSchema): void {
@@ -1283,13 +1419,15 @@ const enemyFromSpawn = (
   enemyId: string,
   type: EnemyType,
   x: number,
-  y: number
+  y: number,
+  mapId: WulandMapId = WULAND_MAP_ID
 ): WulandEnemySchema => {
   const definition = ENEMY_DEFINITIONS[type];
   const enemy = new WulandEnemySchema();
   enemy.enemyId = enemyId;
   enemy.type = type;
   enemy.name = definition.displayName;
+  enemy.mapId = mapId;
   enemy.x = x;
   enemy.y = y;
   enemy.spawnX = x;
@@ -1337,6 +1475,26 @@ const isInFrontArc = (
 
   const facing = vectorForDirection(direction);
   return (dx / length) * facing.x + (dy / length) * facing.y >= BASIC_FACING_DOT;
+};
+
+const isPlayerNearPortal = (
+  player: WulandPlayerSchema,
+  portal: PortalDefinition
+): boolean => {
+  if (portal.fromMapId !== normalizeMapId(player.mapId)) {
+    return false;
+  }
+
+  if (portalAtPosition(normalizeMapId(player.mapId), player)?.id === portal.id) {
+    return true;
+  }
+
+  const rect = portal.sourceRect;
+  const nearest = {
+    x: Math.max(rect.x, Math.min(player.x, rect.x + rect.width)),
+    y: Math.max(rect.y, Math.min(player.y, rect.y + rect.height))
+  };
+  return distance(player, nearest) <= PORTAL_INTERACT_RANGE;
 };
 
 const normalizeHotbarSlot = (slotIndex: unknown): number =>
@@ -1514,7 +1672,7 @@ const addItemToInventory = (
 };
 
 const nearestDroppedItem = (
-  position: WorldPosition,
+  position: WorldPosition & { mapId?: string },
   droppedItems: MapSchema<WulandDroppedItemSchema>,
   range: number
 ): WulandDroppedItemSchema | null => {
@@ -1524,7 +1682,11 @@ const nearestDroppedItem = (
   droppedItems.forEach((item) => {
     const distanceToItem = distance(position, item);
 
-    if (item.mapId === WULAND_MAP_ID && distanceToItem <= range && distanceToItem < bestDistance) {
+    if (
+      item.mapId === normalizeMapId(position.mapId) &&
+      distanceToItem <= range &&
+      distanceToItem < bestDistance
+    ) {
       best = item;
       bestDistance = distanceToItem;
     }
@@ -1546,7 +1708,8 @@ const nearestGiftTarget = (
       player.playerId === giver.playerId ||
       !player.online ||
       player.sleeping ||
-      player.defeated
+      player.defeated ||
+      normalizeMapId(player.mapId) !== normalizeMapId(giver.mapId)
     ) {
       return;
     }
@@ -1563,6 +1726,7 @@ const nearestGiftTarget = (
 };
 
 const isNearMerchant = (player: WulandPlayerSchema): boolean =>
+  normalizeMapId(player.mapId) === WULAND_MAP_ID &&
   distance(player, WULAND_MERCHANT) <= WULAND_MERCHANT.interactionRange;
 
 const healAmountForItem = (definition: ItemDefinition): number => {
@@ -1584,7 +1748,7 @@ const droppedItemFromRecord = (record: DroppedItemNetworkState): WulandDroppedIt
   droppedItem.itemDefinitionId = record.itemDefinitionId;
   droppedItem.itemInstanceId = record.itemInstanceId;
   droppedItem.quantity = record.quantity;
-  droppedItem.mapId = record.mapId || WULAND_MAP_ID;
+  droppedItem.mapId = normalizeMapId(record.mapId);
   droppedItem.x = record.x;
   droppedItem.y = record.y;
   droppedItem.droppedByPlayerId = record.droppedByPlayerId;
@@ -1597,7 +1761,7 @@ const recordFromDroppedItem = (item: WulandDroppedItemSchema): DroppedItemNetwor
   itemDefinitionId: item.itemDefinitionId as ItemDefinitionId,
   itemInstanceId: item.itemInstanceId,
   quantity: item.quantity,
-  mapId: item.mapId,
+  mapId: normalizeMapId(item.mapId),
   x: item.x,
   y: item.y,
   droppedByPlayerId: item.droppedByPlayerId,
@@ -1633,6 +1797,7 @@ const schemaFromRecord = (record: PlayerNetworkState): WulandPlayerSchema => {
   player.outfitColor = record.outfitColor;
   player.accessory = record.accessory;
   player.spriteVariant = record.spriteVariant;
+  player.mapId = normalizeMapId(record.mapId);
   player.x = record.x;
   player.y = record.y;
   player.direction = record.direction;
@@ -1661,6 +1826,7 @@ const recordFromSchema = (player: WulandPlayerSchema): PlayerNetworkState => ({
   outfitColor: player.outfitColor as PlayerNetworkState["outfitColor"],
   accessory: player.accessory as PlayerNetworkState["accessory"],
   spriteVariant: player.spriteVariant as PlayerNetworkState["spriteVariant"],
+  mapId: normalizeMapId(player.mapId),
   x: player.x,
   y: player.y,
   direction: player.direction,

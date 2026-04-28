@@ -83,6 +83,17 @@ export const BUILDING_NAMES = [
 
 export type BuildingName = (typeof BUILDING_NAMES)[number];
 
+export const WULAND_MAP_IDS = [
+  "overworld",
+  "rpa_coe",
+  "bathroom",
+  "kitchen",
+  "busybeet",
+  "din_break"
+] as const;
+
+export type WulandMapId = (typeof WULAND_MAP_IDS)[number];
+
 export const SKIN_TONES = [
   { id: "warm ivory", label: "Warm Ivory", color: "#f2c7a5" },
   { id: "golden tan", label: "Golden Tan", color: "#c98952" },
@@ -184,6 +195,7 @@ export interface WorldPosition {
 
 export interface LocalProgress {
   playerId: string;
+  currentMapId?: WulandMapId;
   lastPosition: WorldPosition;
   visitedBuildings: BuildingName[];
   updatedAt: string;
@@ -211,6 +223,26 @@ export interface CollisionRectangle {
   height: number;
 }
 
+export interface WulandMapDefinition {
+  id: WulandMapId;
+  displayName: string;
+  width: number;
+  height: number;
+  tileSize: number;
+  defaultSpawn: WorldPosition;
+  buildingName?: BuildingName;
+}
+
+export interface PortalDefinition {
+  id: string;
+  fromMapId: WulandMapId;
+  toMapId: WulandMapId;
+  sourceRect: CollisionRectangle;
+  destination: WorldPosition;
+  label: string;
+  buildingName?: BuildingName;
+}
+
 export const WULAND_WORLD = {
   name: "WULAND",
   tileSize: 32,
@@ -221,6 +253,90 @@ export const WULAND_WORLD = {
     y: 820
   } satisfies WorldPosition
 } as const;
+
+export const WULAND_MAP_ID: WulandMapId = "overworld";
+export const LEGACY_WULAND_MAP_ID = "wuland-village";
+export const INTERIOR_WORLD = {
+  tileSize: 32,
+  width: 960,
+  height: 720,
+  defaultSpawn: {
+    x: 480,
+    y: 560
+  } satisfies WorldPosition
+} as const;
+
+export const BUILDING_TO_MAP_ID: Record<BuildingName, Exclude<WulandMapId, "overworld">> = {
+  "RPA CoE": "rpa_coe",
+  Bathroom: "bathroom",
+  Kitchen: "kitchen",
+  BusyBeet: "busybeet",
+  "Din Break": "din_break"
+};
+
+export const MAP_ID_TO_BUILDING_NAME: Partial<Record<WulandMapId, BuildingName>> = {
+  rpa_coe: "RPA CoE",
+  bathroom: "Bathroom",
+  kitchen: "Kitchen",
+  busybeet: "BusyBeet",
+  din_break: "Din Break"
+};
+
+export const WULAND_MAPS: Record<WulandMapId, WulandMapDefinition> = {
+  overworld: {
+    id: "overworld",
+    displayName: "WULAND",
+    width: WULAND_WORLD.width,
+    height: WULAND_WORLD.height,
+    tileSize: WULAND_WORLD.tileSize,
+    defaultSpawn: WULAND_WORLD.defaultSpawn
+  },
+  rpa_coe: {
+    id: "rpa_coe",
+    displayName: "RPA CoE",
+    width: INTERIOR_WORLD.width,
+    height: INTERIOR_WORLD.height,
+    tileSize: INTERIOR_WORLD.tileSize,
+    defaultSpawn: INTERIOR_WORLD.defaultSpawn,
+    buildingName: "RPA CoE"
+  },
+  bathroom: {
+    id: "bathroom",
+    displayName: "Bathroom",
+    width: INTERIOR_WORLD.width,
+    height: INTERIOR_WORLD.height,
+    tileSize: INTERIOR_WORLD.tileSize,
+    defaultSpawn: INTERIOR_WORLD.defaultSpawn,
+    buildingName: "Bathroom"
+  },
+  kitchen: {
+    id: "kitchen",
+    displayName: "Kitchen",
+    width: INTERIOR_WORLD.width,
+    height: INTERIOR_WORLD.height,
+    tileSize: INTERIOR_WORLD.tileSize,
+    defaultSpawn: INTERIOR_WORLD.defaultSpawn,
+    buildingName: "Kitchen"
+  },
+  busybeet: {
+    id: "busybeet",
+    displayName: "BusyBeet",
+    width: INTERIOR_WORLD.width,
+    height: INTERIOR_WORLD.height,
+    tileSize: INTERIOR_WORLD.tileSize,
+    defaultSpawn: INTERIOR_WORLD.defaultSpawn,
+    buildingName: "BusyBeet"
+  },
+  din_break: {
+    id: "din_break",
+    displayName: "Din Break",
+    width: INTERIOR_WORLD.width,
+    height: INTERIOR_WORLD.height,
+    tileSize: INTERIOR_WORLD.tileSize,
+    defaultSpawn: INTERIOR_WORLD.defaultSpawn,
+    buildingName: "Din Break"
+  }
+};
 
 export const PLAYER_COLLISION_SIZE = {
   width: 20,
@@ -316,6 +432,155 @@ export const TREE_COLLISION_RECTS: CollisionRectangle[] =
 export const WULAND_COLLISION_RECTS: CollisionRectangle[] = [
   ...BUILDING_COLLISION_RECTS,
   ...TREE_COLLISION_RECTS
+];
+
+const INTERIOR_WALL_COLLISION_RECTS: CollisionRectangle[] = [
+  { id: "wall-top", x: 0, y: 0, width: INTERIOR_WORLD.width, height: 28 },
+  { id: "wall-bottom-left", x: 0, y: INTERIOR_WORLD.height - 28, width: 430, height: 28 },
+  { id: "wall-bottom-right", x: 530, y: INTERIOR_WORLD.height - 28, width: 430, height: 28 },
+  { id: "wall-left", x: 0, y: 0, width: 28, height: INTERIOR_WORLD.height },
+  { id: "wall-right", x: INTERIOR_WORLD.width - 28, y: 0, width: 28, height: INTERIOR_WORLD.height }
+];
+
+export const INTERIOR_COLLISION_RECTS: Record<Exclude<WulandMapId, "overworld">, CollisionRectangle[]> = {
+  rpa_coe: [
+    ...INTERIOR_WALL_COLLISION_RECTS,
+    { id: "automation-desk-left", x: 112, y: 142, width: 170, height: 62 },
+    { id: "automation-desk-right", x: 680, y: 142, width: 170, height: 62 },
+    { id: "bot-station", x: 388, y: 96, width: 184, height: 74 },
+    { id: "server-rack", x: 790, y: 286, width: 58, height: 164 },
+    { id: "meeting-table", x: 362, y: 324, width: 236, height: 76 }
+  ],
+  bathroom: [
+    ...INTERIOR_WALL_COLLISION_RECTS,
+    { id: "sink-row", x: 118, y: 126, width: 272, height: 58 },
+    { id: "mirror-wall", x: 118, y: 74, width: 272, height: 28 },
+    { id: "stall-1", x: 620, y: 98, width: 78, height: 170 },
+    { id: "stall-2", x: 720, y: 98, width: 78, height: 170 },
+    { id: "laundry-cart", x: 164, y: 376, width: 74, height: 72 }
+  ],
+  kitchen: [
+    ...INTERIOR_WALL_COLLISION_RECTS,
+    { id: "counter-top", x: 94, y: 92, width: 500, height: 64 },
+    { id: "fridge", x: 704, y: 88, width: 82, height: 104 },
+    { id: "stove", x: 808, y: 92, width: 74, height: 86 },
+    { id: "center-table", x: 352, y: 304, width: 238, height: 92 },
+    { id: "coffee-bar", x: 104, y: 494, width: 210, height: 56 }
+  ],
+  busybeet: [
+    ...INTERIOR_WALL_COLLISION_RECTS,
+    { id: "notice-board", x: 104, y: 82, width: 228, height: 46 },
+    { id: "focus-desk-a", x: 156, y: 208, width: 164, height: 72 },
+    { id: "focus-desk-b", x: 644, y: 208, width: 164, height: 72 },
+    { id: "honeycomb-table", x: 376, y: 368, width: 210, height: 86 },
+    { id: "printer-hive", x: 782, y: 432, width: 76, height: 92 }
+  ],
+  din_break: [
+    ...INTERIOR_WALL_COLLISION_RECTS,
+    { id: "couch-left", x: 124, y: 170, width: 210, height: 74 },
+    { id: "couch-right", x: 626, y: 170, width: 210, height: 74 },
+    { id: "coffee-table", x: 376, y: 310, width: 208, height: 78 },
+    { id: "vending-machine", x: 760, y: 402, width: 72, height: 134 },
+    { id: "snack-counter", x: 116, y: 492, width: 226, height: 56 }
+  ]
+};
+
+export const MAP_COLLISION_RECTS: Record<WulandMapId, CollisionRectangle[]> = {
+  overworld: WULAND_COLLISION_RECTS,
+  ...INTERIOR_COLLISION_RECTS
+};
+
+export const WULAND_PORTALS: PortalDefinition[] = [
+  {
+    id: "overworld-to-rpa-coe",
+    fromMapId: "overworld",
+    toMapId: "rpa_coe",
+    sourceRect: { id: "door-rpa-coe", x: 760, y: 420, width: 80, height: 52 },
+    destination: { x: 480, y: 570 },
+    label: "enter RPA CoE",
+    buildingName: "RPA CoE"
+  },
+  {
+    id: "rpa-coe-to-overworld",
+    fromMapId: "rpa_coe",
+    toMapId: "overworld",
+    sourceRect: { id: "exit-rpa-coe", x: 430, y: 620, width: 100, height: 72 },
+    destination: { x: 800, y: 511 },
+    label: "exit to WULAND",
+    buildingName: "RPA CoE"
+  },
+  {
+    id: "overworld-to-bathroom",
+    fromMapId: "overworld",
+    toMapId: "bathroom",
+    sourceRect: { id: "door-bathroom", x: 350, y: 440, width: 80, height: 52 },
+    destination: { x: 480, y: 570 },
+    label: "enter Bathroom",
+    buildingName: "Bathroom"
+  },
+  {
+    id: "bathroom-to-overworld",
+    fromMapId: "bathroom",
+    toMapId: "overworld",
+    sourceRect: { id: "exit-bathroom", x: 430, y: 620, width: 100, height: 72 },
+    destination: { x: 390, y: 531 },
+    label: "exit to WULAND",
+    buildingName: "Bathroom"
+  },
+  {
+    id: "overworld-to-kitchen",
+    fromMapId: "overworld",
+    toMapId: "kitchen",
+    sourceRect: { id: "door-kitchen", x: 1155, y: 476, width: 80, height: 52 },
+    destination: { x: 480, y: 570 },
+    label: "enter Kitchen",
+    buildingName: "Kitchen"
+  },
+  {
+    id: "kitchen-to-overworld",
+    fromMapId: "kitchen",
+    toMapId: "overworld",
+    sourceRect: { id: "exit-kitchen", x: 430, y: 620, width: 100, height: 72 },
+    destination: { x: 1195, y: 566 },
+    label: "exit to WULAND",
+    buildingName: "Kitchen"
+  },
+  {
+    id: "overworld-to-busybeet",
+    fromMapId: "overworld",
+    toMapId: "busybeet",
+    sourceRect: { id: "door-busybeet", x: 490, y: 834, width: 80, height: 54 },
+    destination: { x: 480, y: 570 },
+    label: "enter BusyBeet",
+    buildingName: "BusyBeet"
+  },
+  {
+    id: "busybeet-to-overworld",
+    fromMapId: "busybeet",
+    toMapId: "overworld",
+    sourceRect: { id: "exit-busybeet", x: 430, y: 620, width: 100, height: 72 },
+    destination: { x: 530, y: 924 },
+    label: "exit to WULAND",
+    buildingName: "BusyBeet"
+  },
+  {
+    id: "overworld-to-din-break",
+    fromMapId: "overworld",
+    toMapId: "din_break",
+    sourceRect: { id: "door-din-break", x: 1055, y: 866, width: 80, height: 54 },
+    destination: { x: 480, y: 570 },
+    label: "enter Din Break",
+    buildingName: "Din Break"
+  },
+  {
+    id: "din-break-to-overworld",
+    fromMapId: "din_break",
+    toMapId: "overworld",
+    sourceRect: { id: "exit-din-break", x: 430, y: 620, width: 100, height: 72 },
+    destination: { x: 1095, y: 956 },
+    label: "exit to WULAND",
+    buildingName: "Din Break"
+  }
 ];
 
 export type BuffType =
@@ -519,6 +784,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
 export interface EnemySpawnDefinition {
   id: string;
   type: EnemyType;
+  mapId?: WulandMapId;
   x: number;
   y: number;
   leashRadius: number;
@@ -540,7 +806,6 @@ export const WULAND_ENEMY_SPAWNS: EnemySpawnDefinition[] = [
 ];
 
 export const HOTBAR_SLOT_COUNT = 9;
-export const WULAND_MAP_ID = "wuland-village";
 
 export const ITEM_DEFINITION_IDS = [
   "sword",
@@ -741,7 +1006,7 @@ export interface DroppedItemNetworkState {
   itemDefinitionId: ItemDefinitionId;
   itemInstanceId: string;
   quantity: number;
-  mapId: string;
+  mapId: WulandMapId;
   x: number;
   y: number;
   droppedByPlayerId: string;
@@ -773,6 +1038,10 @@ export interface GiftItemRequest {
   targetPlayerId?: string;
 }
 
+export interface PortalTransitionRequest {
+  portalId?: string;
+}
+
 export interface PlayerNetworkState {
   playerId: string;
   sessionId: string;
@@ -785,6 +1054,7 @@ export interface PlayerNetworkState {
   outfitColor: OutfitColor;
   accessory: AccessoryOption;
   spriteVariant: SpriteVariant;
+  mapId: WulandMapId;
   x: number;
   y: number;
   direction: Direction;
@@ -811,6 +1081,7 @@ export interface EnemyNetworkState {
   enemyId: string;
   type: EnemyType;
   name: string;
+  mapId: WulandMapId;
   x: number;
   y: number;
   spawnX: number;
@@ -835,6 +1106,7 @@ export interface CombatEvent {
   type: CombatEventType;
   sourceId: string;
   targetId: string;
+  mapId?: WulandMapId;
   x: number;
   y: number;
   value: number;
@@ -880,6 +1152,12 @@ export const isGender = (value: unknown): value is Gender =>
 
 export const isBuildingName = (value: unknown): value is BuildingName =>
   isOneOf(BUILDING_NAMES, value);
+
+export const isMapId = (value: unknown): value is WulandMapId =>
+  isOneOf(WULAND_MAP_IDS, value);
+
+export const normalizeMapId = (value: unknown): WulandMapId =>
+  isMapId(value) ? value : WULAND_MAP_ID;
 
 export const isEnemyType = (value: unknown): value is EnemyType =>
   isOneOf(
@@ -1017,6 +1295,12 @@ export const isGiftItemRequest = (value: unknown): value is GiftItemRequest =>
   (isRecord(value) &&
     (value.targetPlayerId === undefined || typeof value.targetPlayerId === "string"));
 
+export const isPortalTransitionRequest = (value: unknown): value is PortalTransitionRequest =>
+  value === undefined ||
+  value === null ||
+  (isRecord(value) &&
+    (value.portalId === undefined || typeof value.portalId === "string"));
+
 export const isDroppedItemNetworkState = (value: unknown): value is DroppedItemNetworkState =>
   isRecord(value) &&
   isNonEmptyString(value.droppedItemId) &&
@@ -1024,8 +1308,8 @@ export const isDroppedItemNetworkState = (value: unknown): value is DroppedItemN
   isNonEmptyString(value.itemInstanceId) &&
   isFiniteNumber(value.quantity) &&
   value.quantity > 0 &&
-  isNonEmptyString(value.mapId) &&
-  isValidWorldPosition({ x: value.x, y: value.y }) &&
+  (isMapId(value.mapId) || value.mapId === LEGACY_WULAND_MAP_ID) &&
+  isValidMapPosition({ x: value.x, y: value.y }, normalizeMapId(value.mapId)) &&
   typeof value.droppedByPlayerId === "string" &&
   isNonEmptyString(value.droppedAt);
 
@@ -1110,6 +1394,7 @@ export const isValidLocalProgress = (value: unknown): value is LocalProgress => 
 
   return (
     isNonEmptyString(value.playerId) &&
+    (value.currentMapId === undefined || isMapId(value.currentMapId)) &&
     isFiniteNumber(value.lastPosition.x) &&
     isFiniteNumber(value.lastPosition.y) &&
     Array.isArray(value.visitedBuildings) &&
@@ -1130,18 +1415,35 @@ export const isValidWorldPosition = (value: unknown): value is WorldPosition =>
 export const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
 
-export const clampWorldPosition = (position: WorldPosition): WorldPosition => ({
+export const getMapDefinition = (mapId: WulandMapId): WulandMapDefinition =>
+  WULAND_MAPS[mapId] ?? WULAND_MAPS[WULAND_MAP_ID];
+
+export const getMapCollisionRects = (mapId: WulandMapId): readonly CollisionRectangle[] =>
+  MAP_COLLISION_RECTS[mapId] ?? WULAND_COLLISION_RECTS;
+
+export const getMapDisplayName = (mapId: WulandMapId): string =>
+  getMapDefinition(mapId).displayName;
+
+export const clampWorldPosition = (
+  position: WorldPosition,
+  world: Pick<WulandMapDefinition, "width" | "height"> = WULAND_WORLD
+): WorldPosition => ({
   x: clamp(
     position.x,
     PLAYER_COLLISION_SIZE.width / 2,
-    WULAND_WORLD.width - PLAYER_COLLISION_SIZE.width / 2
+    world.width - PLAYER_COLLISION_SIZE.width / 2
   ),
   y: clamp(
     position.y,
     PLAYER_COLLISION_SIZE.height / 2,
-    WULAND_WORLD.height - PLAYER_COLLISION_SIZE.height / 2
+    world.height - PLAYER_COLLISION_SIZE.height / 2
   )
 });
+
+export const clampMapPosition = (
+  position: WorldPosition,
+  mapId: WulandMapId
+): WorldPosition => clampWorldPosition(position, getMapDefinition(mapId));
 
 export const playerRectAt = (position: WorldPosition): CollisionRectangle => ({
   id: "player",
@@ -1166,6 +1468,38 @@ export const collidesWithWorld = (
 ): boolean => {
   const playerRect = playerRectAt(position);
   return rectangles.some((rectangle) => rectsOverlap(playerRect, rectangle));
+};
+
+export const collidesWithMap = (
+  position: WorldPosition,
+  mapId: WulandMapId
+): boolean => collidesWithWorld(position, getMapCollisionRects(mapId));
+
+export const isValidMapPosition = (
+  value: unknown,
+  mapId: WulandMapId
+): value is WorldPosition => {
+  const map = getMapDefinition(mapId);
+  return (
+    isRecord(value) &&
+    isFiniteNumber(value.x) &&
+    isFiniteNumber(value.y) &&
+    value.x >= 0 &&
+    value.x <= map.width &&
+    value.y >= 0 &&
+    value.y <= map.height
+  );
+};
+
+export const portalsForMap = (mapId: WulandMapId): PortalDefinition[] =>
+  WULAND_PORTALS.filter((portal) => portal.fromMapId === mapId);
+
+export const portalAtPosition = (
+  mapId: WulandMapId,
+  position: WorldPosition
+): PortalDefinition | null => {
+  const playerRect = playerRectAt(position);
+  return portalsForMap(mapId).find((portal) => rectsOverlap(playerRect, portal.sourceRect)) ?? null;
 };
 
 export const directionFromInput = (
@@ -1226,7 +1560,8 @@ export const applyServerVectorMovement = (
   vector: WorldPosition,
   deltaMs: number,
   fallbackDirection: Direction = "down",
-  rectangles: readonly CollisionRectangle[] = WULAND_COLLISION_RECTS
+  rectangles: readonly CollisionRectangle[] = WULAND_COLLISION_RECTS,
+  world: Pick<WulandMapDefinition, "width" | "height"> = WULAND_WORLD
 ): { position: WorldPosition; moving: boolean; direction: Direction; blocked: boolean } => {
   const moving = vector.x !== 0 || vector.y !== 0;
   const distance = PLAYER_MOVE_SPEED * (deltaMs / 1000);
@@ -1234,7 +1569,7 @@ export const applyServerVectorMovement = (
 
   if (!moving) {
     return {
-      position: clampWorldPosition(position),
+      position: clampWorldPosition(position, world),
       moving: false,
       direction,
       blocked: false
@@ -1245,7 +1580,7 @@ export const applyServerVectorMovement = (
   let next = clampWorldPosition({
     x: position.x + vector.x * distance,
     y: position.y
-  });
+  }, world);
 
   if (collidesWithWorld(next, rectangles)) {
     next = { ...position };
@@ -1255,7 +1590,7 @@ export const applyServerVectorMovement = (
   next = clampWorldPosition({
     x: next.x,
     y: next.y + vector.y * distance
-  });
+  }, world);
 
   if (collidesWithWorld(next, rectangles)) {
     next = { x: next.x, y: position.y };
@@ -1263,7 +1598,7 @@ export const applyServerVectorMovement = (
   }
 
   return {
-    position: clampWorldPosition(next),
+    position: clampWorldPosition(next, world),
     moving: true,
     direction,
     blocked
@@ -1274,7 +1609,8 @@ export const applyServerMovement = (
   position: WorldPosition,
   input: MovementInput,
   deltaMs: number,
-  rectangles: readonly CollisionRectangle[] = WULAND_COLLISION_RECTS
+  rectangles: readonly CollisionRectangle[] = WULAND_COLLISION_RECTS,
+  world: Pick<WulandMapDefinition, "width" | "height"> = WULAND_WORLD
 ): { position: WorldPosition; moving: boolean; direction: Direction } => {
   const vector = movementVectorFromInput(input);
   const result = applyServerVectorMovement(
@@ -1282,7 +1618,8 @@ export const applyServerMovement = (
     vector,
     deltaMs,
     directionFromInput(input),
-    rectangles
+    rectangles,
+    world
   );
 
   return {

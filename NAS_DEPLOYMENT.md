@@ -16,13 +16,11 @@ If Synology only shows an option to upload a `.yml` file, use this easier flow:
 1. Push this repository to GitHub.
 2. Run the GitHub Action named `Publish WULAND Server Docker Image`.
 3. In GitHub, open the published package `wuland-server` and make it public, or log in to GHCR from Synology if you keep it private.
-4. Edit `synology-compose.yml` before uploading it:
+4. Confirm `synology-compose.yml` uses the published server image:
 
 ```yaml
-image: ghcr.io/YOUR_GITHUB_USERNAME/wuland-server:latest
+image: ghcr.io/kbekulov/wuland-server:latest
 ```
-
-Replace `YOUR_GITHUB_USERNAME` with your GitHub username.
 
 5. In the same file, replace:
 

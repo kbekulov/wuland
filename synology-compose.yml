@@ -2,9 +2,7 @@ name: wuland
 
 services:
   wuland-server:
-    # Before uploading this file to Synology, replace YOUR_GITHUB_USERNAME.
-    # Example: ghcr.io/kirilbekulov/wuland-server:latest
-    image: ghcr.io/YOUR_GITHUB_USERNAME/wuland-server:latest
+    image: ghcr.io/kbekulov/wuland-server:latest
     container_name: wuland-server
     restart: unless-stopped
     ports:

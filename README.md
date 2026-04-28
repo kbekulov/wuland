@@ -121,7 +121,7 @@ Synology Docker server: wuland-server
 Cloudflare Tunnel URL: wss://wuland-server.bekulov.com
 ```
 
-If Synology only lets you upload a YML file, use `synology-compose.yml`. It pulls a prebuilt `ghcr.io/.../wuland-server:latest` image and runs it with Cloudflare Tunnel.
+If Synology only lets you upload a YML file, use `synology-compose.yml`. It pulls the prebuilt `ghcr.io/kbekulov/wuland-server:latest` image and runs it with Cloudflare Tunnel.
 
 If you use the source-build route, copy the repository to the NAS, copy `.env.synology.example` to `.env`, paste your Cloudflare Tunnel token, then start the project in Synology Container Manager using `docker-compose.yml`.
 

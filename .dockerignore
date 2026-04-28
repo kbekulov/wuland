@@ -1,0 +1,15 @@
+.git
+.github
+.DS_Store
+node_modules
+client/node_modules
+shared/node_modules
+server/node_modules
+dist
+client/dist
+shared/dist
+server/dist
+assets
+*.log
+coverage
+server/data/*.json

@@ -17,11 +17,13 @@ const startWuland = async (): Promise<void> => {
   ]);
 
   const PhaserRuntime = phaserModule.default;
+  document.querySelector("[data-startup-loading]")?.remove();
+
   const config: Phaser.Types.Core.GameConfig = {
     type: PhaserRuntime.AUTO,
     parent: "game-root",
-    width: 960,
-    height: 640,
+    width: window.innerWidth,
+    height: window.innerHeight,
     backgroundColor: "#182b2d",
     pixelArt: true,
     roundPixels: true,
@@ -33,7 +35,7 @@ const startWuland = async (): Promise<void> => {
       }
     },
     scale: {
-      mode: PhaserRuntime.Scale.FIT,
+      mode: PhaserRuntime.Scale.RESIZE,
       autoCenter: PhaserRuntime.Scale.CENTER_BOTH
     },
     dom: {

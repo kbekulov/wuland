@@ -4,3 +4,7 @@ dist/
 .vite/
 *.log
 coverage/
+server/data/*.json
+.env
+.env.local
+.env.*.local

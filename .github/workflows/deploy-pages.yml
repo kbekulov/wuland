@@ -35,7 +35,9 @@ jobs:
         run: npm run typecheck
 
       - name: Build client
-        run: npm run build
+        env:
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+        run: npm run build:client
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

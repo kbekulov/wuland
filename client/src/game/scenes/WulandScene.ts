@@ -1,10 +1,19 @@
 import Phaser from "phaser";
 import {
   BUILDING_NAMES,
+  CLASS_COMBAT_METADATA,
   CLASS_METADATA,
+  ENEMY_DEFINITIONS,
   WULAND_WORLD,
+  clampWorldPosition,
+  collidesWithWorld,
   type BuildingName,
+  type CombatEvent,
+  type Direction,
+  type EnemyNetworkState,
   type LocalProgress,
+  type MovementInput,
+  type PlayerNetworkState,
   type PlayerProfile
 } from "@wuland/shared";
 import {
@@ -13,8 +22,17 @@ import {
   loadProgress,
   saveProgress
 } from "../../persistence/localSave.ts";
-import { createCharacterTexture } from "../player/characterTexture.ts";
+import {
+  characterTextureProfileFromNetwork,
+  createCharacterTexture
+} from "../player/characterTexture.ts";
 import { BUILDING_LAYOUT, TREE_OBSTACLES, type BuildingDefinition } from "../world/buildings.ts";
+import {
+  getWulandServerUrl,
+  joinWulandRoom,
+  type WulandClientRoom,
+  type WulandRoomState
+} from "../../network/wulandClient.ts";
 
 interface WulandSceneData {
   profile?: PlayerProfile | null;
@@ -28,22 +46,114 @@ interface WasdKeys {
   right: Phaser.Input.Keyboard.Key;
 }
 
-type StaticArcadeObject = Phaser.GameObjects.GameObject & {
-  body: Phaser.Physics.Arcade.StaticBody;
+interface CombatKeys {
+  basic: Phaser.Input.Keyboard.Key;
+  special: Phaser.Input.Keyboard.Key;
+  specialAlt: Phaser.Input.Keyboard.Key;
+}
+
+interface PlayerAvatar {
+  playerId: string;
+  sprite: Phaser.GameObjects.Sprite;
+  aura: Phaser.GameObjects.Arc;
+  hpBg: Phaser.GameObjects.Rectangle;
+  hpFill: Phaser.GameObjects.Rectangle;
+  shieldFill: Phaser.GameObjects.Rectangle;
+  nameLabel: Phaser.GameObjects.Text;
+  classLabel: Phaser.GameObjects.Text;
+  roleLabel: Phaser.GameObjects.Text;
+  statusLabel: Phaser.GameObjects.Text;
+  sleepLabel: Phaser.GameObjects.Text;
+  target: Phaser.Math.Vector2;
+  lastState: PlayerNetworkState;
+}
+
+interface EnemyAvatar {
+  enemyId: string;
+  container: Phaser.GameObjects.Container;
+  body: Phaser.GameObjects.Arc;
+  accent: Phaser.GameObjects.Arc;
+  selectionRing: Phaser.GameObjects.Arc;
+  markLabel: Phaser.GameObjects.Text;
+  nameLabel: Phaser.GameObjects.Text;
+  hpBg: Phaser.GameObjects.Rectangle;
+  hpFill: Phaser.GameObjects.Rectangle;
+  target: Phaser.Math.Vector2;
+  lastState: EnemyNetworkState;
+}
+
+export interface WulandConnectionState {
+  status: "connecting" | "connected" | "disconnected" | "error";
+  message: string;
+  totalPlayers: number;
+  onlinePlayers: number;
+  sleepingPlayers: number;
+  totalEnemies: number;
+  aliveEnemies: number;
+  localHp: number;
+  localMaxHp: number;
+  localShield: number;
+  defeated: boolean;
+  specialCooldownUntil: number;
+  specialName: string;
+}
+
+const ZERO_INPUT: MovementInput = {
+  left: false,
+  right: false,
+  up: false,
+  down: false
 };
+
+const INPUT_RESEND_MS = 175;
 
 export class WulandScene extends Phaser.Scene {
   private profile!: PlayerProfile;
   private progress!: LocalProgress;
   private visitedBuildings = new Set<BuildingName>();
-  private player?: Phaser.Physics.Arcade.Sprite;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd?: WasdKeys;
-  private nameLabel?: Phaser.GameObjects.Text;
-  private classLabel?: Phaser.GameObjects.Text;
-  private colliders: StaticArcadeObject[] = [];
-  private visitZones: Array<{ name: BuildingName; zone: StaticArcadeObject }> = [];
+  private combatKeys?: CombatKeys;
+  private debugKey?: Phaser.Input.Keyboard.Key;
+  private room?: WulandClientRoom;
+  private mobileRoot?: HTMLDivElement;
+  private avatars = new Map<string, PlayerAvatar>();
+  private enemyAvatars = new Map<string, EnemyAvatar>();
+  private latestPlayers = new Map<string, PlayerNetworkState>();
+  private latestEnemies = new Map<string, EnemyNetworkState>();
+  private connectionState: WulandConnectionState = {
+    status: "connecting",
+    message: "Connecting to WULAND server",
+    totalPlayers: 0,
+    onlinePlayers: 0,
+    sleepingPlayers: 0,
+    totalEnemies: 0,
+    aliveEnemies: 0,
+    localHp: 0,
+    localMaxHp: 0,
+    localShield: 0,
+    defeated: false,
+    specialCooldownUntil: 0,
+    specialName: ""
+  };
+  private selectedEnemyId = "";
+  private virtualInput: MovementInput = { ...ZERO_INPUT };
+  private clickTarget?: Phaser.Math.Vector2;
+  private destinationMarker?: Phaser.GameObjects.Arc;
+  private targetStartedAt = 0;
+  private lastTargetDistance = Number.POSITIVE_INFINITY;
+  private lastTargetProgressAt = 0;
+  private lastInput: MovementInput = { ...ZERO_INPUT };
+  private lastSentInput: MovementInput = { ...ZERO_INPUT };
+  private lastInputSentAt = 0;
   private lastProgressSave = 0;
+  private leavingRoom = false;
+  private sceneActive = false;
+  private readonly handleWindowBlur = (): void => {
+    this.lastInput = { ...ZERO_INPUT };
+    this.virtualInput = { ...ZERO_INPUT };
+    this.sendMovementInput(ZERO_INPUT, true);
+  };
 
   constructor() {
     super("WulandScene");
@@ -60,53 +170,72 @@ export class WulandScene extends Phaser.Scene {
     this.profile = profile;
     this.progress = this.resolveProgress(data.progress);
     this.visitedBuildings = new Set(this.progress.visitedBuildings);
-    this.colliders = [];
-    this.visitZones = [];
+    this.avatars.clear();
+    this.enemyAvatars.clear();
+    this.latestPlayers.clear();
+    this.latestEnemies.clear();
+    this.selectedEnemyId = "";
+    this.virtualInput = { ...ZERO_INPUT };
+    this.clickTarget = undefined;
+    this.targetStartedAt = 0;
+    this.lastTargetDistance = Number.POSITIVE_INFINITY;
+    this.lastTargetProgressAt = 0;
+    this.leavingRoom = false;
+    this.sceneActive = true;
+    this.connectionState = {
+      status: "connecting",
+      message: `Connecting to ${getWulandServerUrl()}`,
+      totalPlayers: 0,
+      onlinePlayers: 0,
+      sleepingPlayers: 0,
+      totalEnemies: 0,
+      aliveEnemies: 0,
+      localHp: 0,
+      localMaxHp: 0,
+      localShield: 0,
+      defeated: false,
+      specialCooldownUntil: 0,
+      specialName: CLASS_COMBAT_METADATA[this.profile.class].specialName
+    };
 
     this.physics.world.setBounds(0, 0, WULAND_WORLD.width, WULAND_WORLD.height);
     this.cameras.main.setBounds(0, 0, WULAND_WORLD.width, WULAND_WORLD.height);
     this.cameras.main.setBackgroundColor("#6faa55");
 
     this.drawVillage();
-    this.createPlayer();
     this.createInput();
-    this.createPhysicsInteractions();
-    this.saveCurrentProgress();
+    this.mountMobileControls();
 
     this.scene.launch("UIScene", {
       profile: this.profile,
-      progress: this.progress
+      progress: this.progress,
+      connection: this.connectionState
     });
+    this.emitConnectionState();
 
     this.game.events.on("wuland:editCharacter", this.openCharacterSelect, this);
+    window.addEventListener("blur", this.handleWindowBlur);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
+
+    void this.connectToRoom();
   }
 
-  update(time: number): void {
-    if (!this.player || !this.cursors || !this.wasd) {
-      return;
-    }
+  update(time: number, delta: number): void {
+    this.sendMovementInputForControls(time);
+    this.sendCombatForKeyboard();
+    this.updateAvatarPositions(delta);
+    this.updateEnemyPositions(delta);
 
-    const left = Boolean(this.cursors.left?.isDown || this.wasd.left.isDown);
-    const right = Boolean(this.cursors.right?.isDown || this.wasd.right.isDown);
-    const up = Boolean(this.cursors.up?.isDown || this.wasd.up.isDown);
-    const down = Boolean(this.cursors.down?.isDown || this.wasd.down.isDown);
-    const velocity = new Phaser.Math.Vector2(
-      (left ? -1 : 0) + (right ? 1 : 0),
-      (up ? -1 : 0) + (down ? 1 : 0)
-    );
+    const localPlayer = this.latestPlayers.get(this.profile.playerId);
 
-    if (velocity.lengthSq() > 0) {
-      velocity.normalize().scale(175);
-    }
+    if (localPlayer) {
+      this.updateClickTarget(localPlayer, time);
+      this.updateVisitedBuildings(localPlayer);
 
-    this.player.setVelocity(velocity.x, velocity.y);
-    this.player.setFlipX(velocity.x < 0);
-    this.updatePlayerLabels();
-
-    if (time - this.lastProgressSave > 650) {
-      this.saveCurrentProgress();
-      this.lastProgressSave = time;
+      if (time - this.lastProgressSave > 650) {
+        this.saveCurrentProgress();
+        this.lastProgressSave = time;
+      }
     }
   }
 
@@ -118,6 +247,41 @@ export class WulandScene extends Phaser.Scene {
     }
 
     return createInitialProgress(this.profile.playerId);
+  }
+
+  private async connectToRoom(): Promise<void> {
+    this.setConnectionState({
+      status: "connecting",
+      message: `Connecting to ${getWulandServerUrl()}`
+    });
+
+    try {
+      const room = await joinWulandRoom({
+        profile: this.profile,
+        localProgress: this.progress
+      });
+
+      if (!this.sceneActive) {
+        void room.leave(true);
+        return;
+      }
+
+      this.room = room;
+      this.setConnectionState({
+        status: "connected",
+        message: `Connected to room ${room.roomId}`
+      });
+      room.onStateChange((state) => this.handleRoomState(state));
+      room.onMessage("combatEvent", (event: CombatEvent) => this.handleCombatEvent(event));
+      room.onLeave((code, reason) => this.handleRoomLeave(code, reason));
+      room.onError((code, message) => this.handleRoomError(code, message));
+      this.handleRoomState(room.state);
+    } catch (error) {
+      this.setConnectionState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not connect to WULAND server"
+      });
+    }
   }
 
   private drawVillage(): void {
@@ -211,10 +375,10 @@ export class WulandScene extends Phaser.Scene {
       .rectangle(building.x + 8, building.y + 10, building.width, building.height, 0x000000, 0.18)
       .setDepth(8);
 
-    const body = this.add
+    this.add
       .rectangle(building.x, building.y, building.width, building.height, building.bodyColor)
       .setStrokeStyle(3, 0x44372d)
-      .setDepth(12) as Phaser.GameObjects.Rectangle & { body: Phaser.Physics.Arcade.StaticBody };
+      .setDepth(12);
 
     this.add
       .rectangle(building.x, building.y - building.height / 2 + 12, building.width + 26, 32, building.roofColor)
@@ -236,22 +400,6 @@ export class WulandScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(18);
-
-    this.physics.add.existing(body, true);
-    body.body.setSize(building.width + 12, building.height + 12);
-    body.body.updateFromGameObject();
-    this.colliders.push(body);
-
-    const visitZone = this.add.zone(
-      building.x,
-      building.y,
-      building.width + building.visitPadding * 2,
-      building.height + building.visitPadding * 2
-    ) as Phaser.GameObjects.Zone & { body: Phaser.Physics.Arcade.StaticBody };
-
-    this.physics.add.existing(visitZone, true);
-    visitZone.body.updateFromGameObject();
-    this.visitZones.push({ name: building.name, zone: visitZone });
   }
 
   private drawTree(x: number, y: number): void {
@@ -259,54 +407,6 @@ export class WulandScene extends Phaser.Scene {
     this.add.circle(x, y, 32, 0x2f7d32).setDepth(11);
     this.add.circle(x - 18, y + 10, 22, 0x3f9b42).setDepth(11);
     this.add.circle(x + 20, y + 12, 24, 0x2f8f3a).setDepth(11);
-
-    const collider = this.add.zone(x, y + 18, 48, 54) as Phaser.GameObjects.Zone & {
-      body: Phaser.Physics.Arcade.StaticBody;
-    };
-    this.physics.add.existing(collider, true);
-    collider.body.updateFromGameObject();
-    this.colliders.push(collider);
-  }
-
-  private createPlayer(): void {
-    const textureKey = createCharacterTexture(this, this.profile);
-    this.player = this.physics.add.sprite(
-      this.progress.lastPosition.x,
-      this.progress.lastPosition.y,
-      textureKey
-    );
-    this.player.setDepth(50);
-    this.player.setCollideWorldBounds(true);
-    this.player.setDrag(900, 900);
-
-    const body = this.player.body as Phaser.Physics.Arcade.Body;
-    body.setSize(20, 28);
-    body.setOffset(14, 31);
-
-    const classMeta = CLASS_METADATA[this.profile.class];
-    this.nameLabel = this.add
-      .text(this.player.x, this.player.y - 58, this.profile.name, {
-        fontFamily: "Arial, sans-serif",
-        fontSize: "15px",
-        color: "#ffffff",
-        backgroundColor: "rgba(16, 22, 20, 0.72)",
-        padding: { x: 6, y: 3 }
-      })
-      .setOrigin(0.5)
-      .setDepth(70);
-    this.classLabel = this.add
-      .text(this.player.x, this.player.y - 36, classMeta.shortLabel, {
-        fontFamily: "Arial, sans-serif",
-        fontSize: "12px",
-        color: "#ffffff",
-        backgroundColor: classMeta.color,
-        padding: { x: 6, y: 2 }
-      })
-      .setOrigin(0.5)
-      .setDepth(70);
-
-    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
-    this.cameras.main.setDeadzone(90, 70);
   }
 
   private createInput(): void {
@@ -321,19 +421,551 @@ export class WulandScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D
     }) as WasdKeys;
+    this.combatKeys = {
+      basic: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.J),
+      special: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.K),
+      specialAlt: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+    };
+    this.debugKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F3);
+    this.input.on("pointerdown", this.handlePointerDown, this);
   }
 
-  private createPhysicsInteractions(): void {
-    if (!this.player) {
+  private mountMobileControls(): void {
+    const uiRoot = document.getElementById("ui-root");
+
+    if (!uiRoot) {
       return;
     }
 
-    this.colliders.forEach((collider) => {
-      this.physics.add.collider(this.player!, collider);
+    const touchLikely =
+      window.matchMedia("(pointer: coarse)").matches ||
+      window.innerWidth <= 860;
+    document.body.toggleAttribute("data-touch-controls", touchLikely);
+
+    const root = document.createElement("div");
+    root.className = "mobile-controls";
+    root.innerHTML = `
+      <div class="mobile-dpad" aria-label="Movement controls">
+        <button type="button" data-mobile-dir="up" aria-label="Move up">Up</button>
+        <button type="button" data-mobile-dir="left" aria-label="Move left">Left</button>
+        <button type="button" data-mobile-dir="down" aria-label="Move down">Down</button>
+        <button type="button" data-mobile-dir="right" aria-label="Move right">Right</button>
+      </div>
+      <div class="mobile-actions" aria-label="Combat controls">
+        <button type="button" data-mobile-action="basic">Attack</button>
+        <button type="button" data-mobile-action="special">Special</button>
+        <button type="button" data-mobile-action="help">Help</button>
+        <button type="button" data-mobile-action="debug">F3</button>
+      </div>
+    `;
+    uiRoot.appendChild(root);
+    this.mobileRoot = root;
+
+    root.querySelectorAll<HTMLButtonElement>("[data-mobile-dir]").forEach((button) => {
+      const direction = button.dataset.mobileDir as keyof MovementInput;
+      const activate = (event: PointerEvent): void => {
+        event.preventDefault();
+        button.setPointerCapture?.(event.pointerId);
+        this.virtualInput = { ...ZERO_INPUT, [direction]: true };
+        this.clearClickTarget(true);
+      };
+      const deactivate = (event: PointerEvent): void => {
+        event.preventDefault();
+        this.virtualInput = { ...ZERO_INPUT };
+      };
+
+      button.addEventListener("pointerdown", activate);
+      button.addEventListener("pointerup", deactivate);
+      button.addEventListener("pointercancel", deactivate);
+      button.addEventListener("lostpointercapture", () => {
+        this.virtualInput = { ...ZERO_INPUT };
+      });
     });
 
-    this.visitZones.forEach(({ name, zone }) => {
-      this.physics.add.overlap(this.player!, zone, () => this.markBuildingVisited(name));
+    root.querySelector('[data-mobile-action="basic"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.sendBasicAttack();
+    });
+    root.querySelector('[data-mobile-action="special"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.sendSpecialAbility();
+    });
+    root.querySelector('[data-mobile-action="help"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.game.events.emit("wuland:toggleHelp");
+    });
+    root.querySelector('[data-mobile-action="debug"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.game.events.emit("wuland:toggleDebug");
+    });
+  }
+
+  private sendMovementInputForControls(time: number): void {
+    if (!this.cursors || !this.wasd) {
+      return;
+    }
+
+    const keyboardInput: MovementInput = {
+      left: Boolean(this.cursors.left?.isDown || this.wasd.left.isDown),
+      right: Boolean(this.cursors.right?.isDown || this.wasd.right.isDown),
+      up: Boolean(this.cursors.up?.isDown || this.wasd.up.isDown),
+      down: Boolean(this.cursors.down?.isDown || this.wasd.down.isDown)
+    };
+    const input = hasMovementInput(keyboardInput)
+      ? keyboardInput
+      : this.virtualInput;
+    const changed = !movementInputsEqual(input, this.lastInput);
+    const shouldRefresh = time - this.lastInputSentAt > INPUT_RESEND_MS;
+
+    this.lastInput = input;
+
+    if (hasMovementInput(input)) {
+      this.clearClickTarget(true);
+    }
+
+    if (changed || shouldRefresh) {
+      this.sendMovementInput(input, changed);
+      this.lastInputSentAt = time;
+    }
+  }
+
+  private sendMovementInput(input: MovementInput, force = false): void {
+    if (!this.room) {
+      return;
+    }
+
+    if (!force && movementInputsEqual(input, this.lastSentInput)) {
+      return;
+    }
+
+    this.lastSentInput = { ...input };
+    this.room.send("movement", input);
+  }
+
+  private sendCombatForKeyboard(): void {
+    if (!this.combatKeys) {
+      return;
+    }
+
+    if (this.debugKey && Phaser.Input.Keyboard.JustDown(this.debugKey)) {
+      this.game.events.emit("wuland:toggleDebug");
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.combatKeys.basic)) {
+      this.sendBasicAttack();
+    }
+
+    if (
+      Phaser.Input.Keyboard.JustDown(this.combatKeys.special) ||
+      Phaser.Input.Keyboard.JustDown(this.combatKeys.specialAlt)
+    ) {
+      this.sendSpecialAbility();
+    }
+  }
+
+  private sendBasicAttack(targetEnemyId = this.selectedEnemyId): void {
+    const request = this.buildCombatRequest(targetEnemyId);
+    this.room?.send("basicAttack", request);
+  }
+
+  private sendSpecialAbility(targetEnemyId = this.selectedEnemyId): void {
+    const request = this.buildCombatRequest(targetEnemyId);
+    this.room?.send("specialAbility", request);
+  }
+
+  private buildCombatRequest(targetEnemyId: string): { targetEnemyId?: string; direction: Direction } {
+    const localPlayer = this.latestPlayers.get(this.profile.playerId);
+    const enemy = targetEnemyId ? this.latestEnemies.get(targetEnemyId) : undefined;
+
+    return {
+      targetEnemyId: enemy?.alive ? targetEnemyId : undefined,
+      direction: localPlayer?.direction ?? "down"
+    };
+  }
+
+  private handlePointerDown(pointer: Phaser.Input.Pointer): void {
+    if (!this.cameras.main) {
+      return;
+    }
+
+    const worldPoint = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    const enemy = this.enemyAtWorldPoint(worldPoint.x, worldPoint.y);
+
+    if (!enemy) {
+      this.setClickTarget(worldPoint.x, worldPoint.y);
+      return;
+    }
+
+    this.selectedEnemyId = enemy.enemyId;
+    this.refreshEnemySelection();
+    this.sendBasicAttack(enemy.enemyId);
+  }
+
+  private setClickTarget(x: number, y: number): void {
+    const target = clampWorldPosition({ x, y });
+
+    if (collidesWithWorld(target)) {
+      this.showFloatingText(target.x, target.y, "blocked", "#ffd8a8");
+      return;
+    }
+
+    this.clickTarget = new Phaser.Math.Vector2(target.x, target.y);
+    this.targetStartedAt = this.time.now;
+    this.lastTargetDistance = Number.POSITIVE_INFINITY;
+    this.lastTargetProgressAt = this.time.now;
+    this.room?.send("moveTarget", target);
+    this.showDestinationMarker(target.x, target.y);
+  }
+
+  private updateClickTarget(player: PlayerNetworkState, time: number): void {
+    if (!this.clickTarget) {
+      return;
+    }
+
+    const distanceToTarget = Phaser.Math.Distance.Between(
+      player.x,
+      player.y,
+      this.clickTarget.x,
+      this.clickTarget.y
+    );
+
+    if (distanceToTarget <= 18) {
+      this.clearClickTarget(false);
+      return;
+    }
+
+    if (distanceToTarget < this.lastTargetDistance - 2) {
+      this.lastTargetDistance = distanceToTarget;
+      this.lastTargetProgressAt = time;
+    }
+
+    if (time - this.targetStartedAt > 550 && time - this.lastTargetProgressAt > 1100) {
+      this.clearClickTarget(false);
+    }
+  }
+
+  private showDestinationMarker(x: number, y: number): void {
+    if (!this.destinationMarker) {
+      this.destinationMarker = this.add
+        .circle(x, y, 18, 0x56c4a8, 0.18)
+        .setStrokeStyle(3, 0xe8fff9, 0.8)
+        .setDepth(43);
+    }
+
+    this.destinationMarker
+      .setPosition(x, y)
+      .setAlpha(1)
+      .setVisible(true);
+    this.tweens.killTweensOf(this.destinationMarker);
+    this.tweens.add({
+      targets: this.destinationMarker,
+      scaleX: 1.18,
+      scaleY: 1.18,
+      yoyo: true,
+      repeat: -1,
+      duration: 520,
+      ease: "Sine.easeInOut"
+    });
+  }
+
+  private clearClickTarget(interrupted: boolean): void {
+    if (!this.clickTarget) {
+      return;
+    }
+
+    this.clickTarget = undefined;
+    this.lastTargetDistance = Number.POSITIVE_INFINITY;
+    this.lastTargetProgressAt = 0;
+    this.room?.send("clearMoveTarget", { interrupted });
+
+    if (this.destinationMarker) {
+      this.tweens.killTweensOf(this.destinationMarker);
+      this.destinationMarker.setVisible(false).setScale(1);
+    }
+  }
+
+  private handleRoomState(state: WulandRoomState): void {
+    if (!this.sceneActive) {
+      return;
+    }
+
+    const seenPlayers = new Set<string>();
+    const seenEnemies = new Set<string>();
+    this.latestPlayers.clear();
+    this.latestEnemies.clear();
+    state.players?.forEach((playerSchema) => {
+      const player = snapshotPlayer(playerSchema);
+      seenPlayers.add(player.playerId);
+      this.latestPlayers.set(player.playerId, player);
+      this.renderPlayer(player);
+    });
+    state.enemies?.forEach((enemySchema) => {
+      const enemy = snapshotEnemy(enemySchema);
+      seenEnemies.add(enemy.enemyId);
+      this.latestEnemies.set(enemy.enemyId, enemy);
+      this.renderEnemy(enemy);
+    });
+
+    for (const [playerId, avatar] of this.avatars) {
+      if (!seenPlayers.has(playerId)) {
+        this.destroyAvatar(avatar);
+        this.avatars.delete(playerId);
+      }
+    }
+
+    for (const [enemyId, avatar] of this.enemyAvatars) {
+      if (!seenEnemies.has(enemyId)) {
+        this.destroyEnemyAvatar(avatar);
+        this.enemyAvatars.delete(enemyId);
+      }
+    }
+
+    const localPlayer = this.latestPlayers.get(this.profile.playerId);
+    const combatMeta = CLASS_COMBAT_METADATA[this.profile.class];
+
+    this.setConnectionState({
+      totalPlayers: state.totalPlayers ?? seenPlayers.size,
+      onlinePlayers: state.onlinePlayers ?? countPlayers(this.latestPlayers, "online"),
+      sleepingPlayers: state.sleepingPlayers ?? countPlayers(this.latestPlayers, "sleeping"),
+      totalEnemies: state.totalEnemies ?? seenEnemies.size,
+      aliveEnemies: state.aliveEnemies ?? countAliveEnemies(this.latestEnemies),
+      localHp: localPlayer?.hp ?? 0,
+      localMaxHp: localPlayer?.maxHp ?? 0,
+      localShield: localPlayer?.shield ?? 0,
+      defeated: Boolean(localPlayer?.defeated),
+      specialCooldownUntil: localPlayer?.specialCooldownUntil ?? 0,
+      specialName: combatMeta.specialName
+    });
+  }
+
+  private renderPlayer(player: PlayerNetworkState): void {
+    const isLocalPlayer = player.playerId === this.profile.playerId;
+    const textureKey = createCharacterTexture(
+      this,
+      characterTextureProfileFromNetwork(player)
+    );
+    let avatar = this.avatars.get(player.playerId);
+
+    if (!avatar) {
+      const sprite = this.add.sprite(player.x, player.y, textureKey);
+      sprite.setDepth(50);
+      avatar = {
+        playerId: player.playerId,
+        sprite,
+        aura: this.add.circle(player.x, player.y, 35, 0xffffff, 0.13).setDepth(45).setVisible(false),
+        hpBg: this.add.rectangle(player.x - 30, player.y - 75, 60, 6, 0x1f272a, 0.88).setOrigin(0, 0.5).setDepth(72),
+        hpFill: this.add.rectangle(player.x - 30, player.y - 75, 60, 6, 0x69db7c, 1).setOrigin(0, 0.5).setDepth(73),
+        shieldFill: this.add.rectangle(player.x - 30, player.y - 68, 0, 4, 0x74c0fc, 0.95).setOrigin(0, 0.5).setDepth(73),
+        nameLabel: this.createPlayerLabel(player.name, 15, "#ffffff", "rgba(16, 22, 20, 0.76)"),
+        classLabel: this.createPlayerLabel("", 11, "#ffffff", CLASS_METADATA[player.className].color),
+        roleLabel: this.createPlayerLabel("", 10, "#f5f1d5", "rgba(29, 35, 38, 0.78)"),
+        statusLabel: this.createPlayerLabel("", 11, "#f5f1d5", "rgba(35, 38, 45, 0.82)"),
+        sleepLabel: this.createPlayerLabel("Zzz", 16, "#fff7b2", "rgba(44, 46, 62, 0.8)"),
+        target: new Phaser.Math.Vector2(player.x, player.y),
+        lastState: player
+      };
+      this.avatars.set(player.playerId, avatar);
+
+      if (isLocalPlayer) {
+        this.cameras.main.startFollow(sprite, true, 0.12, 0.12);
+        this.cameras.main.setDeadzone(90, 70);
+      }
+    } else if (avatar.sprite.texture.key !== textureKey) {
+      avatar.sprite.setTexture(textureKey);
+    }
+
+    const classMeta = CLASS_METADATA[player.className];
+    const combatMeta = CLASS_COMBAT_METADATA[player.className];
+    const statusText = player.defeated
+      ? "respawning"
+      : player.sleeping || !player.online
+        ? "sleeping"
+        : "";
+    const hpPercent = player.maxHp > 0 ? Phaser.Math.Clamp(player.hp / player.maxHp, 0, 1) : 0;
+    const shieldPercent = player.maxHp > 0 ? Phaser.Math.Clamp(player.shield / player.maxHp, 0, 1) : 0;
+
+    avatar.target.set(player.x, player.y);
+    avatar.lastState = player;
+    avatar.nameLabel.setText(player.name);
+    avatar.classLabel
+      .setText(`${classMeta.iconText} ${classMeta.shortLabel}`)
+      .setBackgroundColor(classMeta.color);
+    avatar.roleLabel.setText(combatMeta.role);
+    avatar.statusLabel.setText(statusText).setVisible(statusText.length > 0);
+    avatar.sleepLabel.setVisible(player.sleeping || !player.online);
+    avatar.hpFill
+      .setFillStyle(player.defeated ? 0xff6b6b : hpPercent < 0.35 ? 0xffd43b : 0x69db7c)
+      .setDisplaySize(60 * hpPercent, 6);
+    avatar.shieldFill.setDisplaySize(60 * shieldPercent, 4).setVisible(player.shield > 0);
+    avatar.aura
+      .setFillStyle(parseCssColor(classMeta.color), player.activeBuffs ? 0.16 : 0)
+      .setVisible(player.activeBuffs.length > 0);
+    avatar.sprite
+      .setFlipX(player.direction === "left")
+      .setAlpha(player.sleeping || !player.online || player.defeated ? 0.58 : 1)
+      .setTint(player.defeated ? 0xffb3b3 : player.sleeping || !player.online ? 0x9da6af : 0xffffff);
+
+    if (isLocalPlayer) {
+      avatar.sprite.setPosition(player.x, player.y);
+    }
+
+    this.updatePlayerLabels(avatar);
+  }
+
+  private createPlayerLabel(
+    text: string,
+    fontSize: number,
+    color: string,
+    backgroundColor: string
+  ): Phaser.GameObjects.Text {
+    return this.add
+      .text(0, 0, text, {
+        fontFamily: "Arial, sans-serif",
+        fontSize: `${fontSize}px`,
+        color,
+        backgroundColor,
+        align: "center",
+        padding: { x: 6, y: 2 },
+        wordWrap: { width: 190, useAdvancedWrap: true }
+      })
+      .setOrigin(0.5)
+      .setDepth(70);
+  }
+
+  private renderEnemy(enemy: EnemyNetworkState): void {
+    const definition = ENEMY_DEFINITIONS[enemy.type];
+    let avatar = this.enemyAvatars.get(enemy.enemyId);
+
+    if (!avatar) {
+      const body = this.add.circle(0, 0, definition.radius, definition.color, 0.95);
+      const accent = this.add.circle(
+        definition.radius * 0.3,
+        -definition.radius * 0.25,
+        Math.max(5, definition.radius * 0.32),
+        definition.accentColor,
+        0.9
+      );
+      const selectionRing = this.add
+        .circle(0, 0, definition.radius + 7, 0xffffff, 0)
+        .setStrokeStyle(3, 0xfff3bf, 1)
+        .setVisible(false);
+      const hpBg = this.add.rectangle(-31, -definition.radius - 18, 62, 6, 0x251f21, 0.88).setOrigin(0, 0.5);
+      const hpFill = this.add.rectangle(-31, -definition.radius - 18, 62, 6, 0xff6b6b, 1).setOrigin(0, 0.5);
+      const nameLabel = this.add
+        .text(0, -definition.radius - 34, enemy.name, {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "12px",
+          color: "#fff8e7",
+          backgroundColor: "rgba(31, 24, 24, 0.76)",
+          padding: { x: 6, y: 2 }
+        })
+        .setOrigin(0.5);
+      const markLabel = this.add
+        .text(0, -definition.radius - 52, "MARKED", {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "10px",
+          color: "#1b1c1d",
+          backgroundColor: "#facc15",
+          padding: { x: 5, y: 2 }
+        })
+        .setOrigin(0.5)
+        .setVisible(false);
+      const container = this.add.container(enemy.x, enemy.y, [
+        selectionRing,
+        body,
+        accent,
+        hpBg,
+        hpFill,
+        nameLabel,
+        markLabel
+      ]);
+      container.setDepth(42);
+      avatar = {
+        enemyId: enemy.enemyId,
+        container,
+        body,
+        accent,
+        selectionRing,
+        markLabel,
+        nameLabel,
+        hpBg,
+        hpFill,
+        target: new Phaser.Math.Vector2(enemy.x, enemy.y),
+        lastState: enemy
+      };
+      this.enemyAvatars.set(enemy.enemyId, avatar);
+    }
+
+    const hpPercent = enemy.maxHp > 0 ? Phaser.Math.Clamp(enemy.hp / enemy.maxHp, 0, 1) : 0;
+    avatar.target.set(enemy.x, enemy.y);
+    avatar.lastState = enemy;
+    avatar.container.setVisible(enemy.alive);
+    avatar.nameLabel.setText(enemy.name);
+    avatar.body.setFillStyle(definition.color, enemy.alive ? 0.95 : 0.2);
+    avatar.accent.setFillStyle(definition.accentColor, enemy.alive ? 0.9 : 0.2);
+    avatar.hpFill.setDisplaySize(62 * hpPercent, 6);
+    avatar.markLabel.setVisible(enemy.markedUntil > Date.now());
+    avatar.selectionRing.setVisible(enemy.enemyId === this.selectedEnemyId && enemy.alive);
+
+    if (!enemy.alive && this.selectedEnemyId === enemy.enemyId) {
+      this.selectedEnemyId = "";
+    }
+  }
+
+  private updateAvatarPositions(delta: number): void {
+    const interpolation = Phaser.Math.Clamp(delta / 85, 0.12, 1);
+
+    this.avatars.forEach((avatar) => {
+      if (avatar.playerId !== this.profile.playerId) {
+        avatar.sprite.x = Phaser.Math.Linear(avatar.sprite.x, avatar.target.x, interpolation);
+        avatar.sprite.y = Phaser.Math.Linear(avatar.sprite.y, avatar.target.y, interpolation);
+      }
+
+      this.updatePlayerLabels(avatar);
+    });
+  }
+
+  private updateEnemyPositions(delta: number): void {
+    const interpolation = Phaser.Math.Clamp(delta / 95, 0.1, 1);
+
+    this.enemyAvatars.forEach((avatar) => {
+      avatar.container.x = Phaser.Math.Linear(avatar.container.x, avatar.target.x, interpolation);
+      avatar.container.y = Phaser.Math.Linear(avatar.container.y, avatar.target.y, interpolation);
+    });
+  }
+
+  private updatePlayerLabels(avatar: PlayerAvatar): void {
+    const x = avatar.sprite.x;
+    const y = avatar.sprite.y;
+    const sleeping = avatar.lastState.sleeping || !avatar.lastState.online;
+    const defeated = avatar.lastState.defeated;
+
+    avatar.aura.setPosition(x, y);
+    avatar.hpBg.setPosition(x - 30, y - 87);
+    avatar.hpFill.setPosition(x - 30, y - 87);
+    avatar.shieldFill.setPosition(x - 30, y - 80);
+    avatar.sleepLabel.setPosition(x, y - 108);
+    avatar.nameLabel.setPosition(x, y - 67);
+    avatar.classLabel.setPosition(x, y - 47);
+    avatar.roleLabel.setPosition(x, y - 28);
+    avatar.statusLabel.setPosition(x, y - 10);
+    avatar.statusLabel.setVisible(sleeping || defeated);
+  }
+
+  private updateVisitedBuildings(player: PlayerNetworkState): void {
+    BUILDING_LAYOUT.forEach((building) => {
+      if (this.visitedBuildings.has(building.name)) {
+        return;
+      }
+
+      const withinX =
+        Math.abs(player.x - building.x) <= building.width / 2 + building.visitPadding;
+      const withinY =
+        Math.abs(player.y - building.y) <= building.height / 2 + building.visitPadding;
+
+      if (withinX && withinY) {
+        this.markBuildingVisited(building.name);
+      }
     });
   }
 
@@ -348,12 +980,14 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private showVisitToast(name: BuildingName): void {
-    if (!this.player) {
+    const avatar = this.avatars.get(this.profile.playerId);
+
+    if (!avatar) {
       return;
     }
 
     const toast = this.add
-      .text(this.player.x, this.player.y - 82, `Visited ${name}`, {
+      .text(avatar.sprite.x, avatar.sprite.y - 102, `Visited ${name}`, {
         fontFamily: "Arial, sans-serif",
         fontSize: "16px",
         color: "#1c241d",
@@ -373,26 +1007,137 @@ export class WulandScene extends Phaser.Scene {
     });
   }
 
-  private updatePlayerLabels(): void {
-    if (!this.player || !this.nameLabel || !this.classLabel) {
+  private handleCombatEvent(event: CombatEvent): void {
+    if (!this.sceneActive) {
       return;
     }
 
-    this.nameLabel.setPosition(this.player.x, this.player.y - 58);
-    this.classLabel.setPosition(this.player.x, this.player.y - 36);
+    this.showFloatingText(event.x, event.y, event.text, event.color);
+
+    if (event.type === "basic" || event.type === "special") {
+      this.showAttackEffect(event);
+    }
+
+    if (event.type === "shield" || event.type === "buff" || event.type === "mark") {
+      this.showAreaEffect(event);
+    }
+
+    const enemy = this.enemyAvatars.get(event.targetId);
+    if (enemy) {
+      this.flashEnemy(enemy, event.type === "mark" ? 0xfacc15 : 0xffffff);
+    }
+  }
+
+  private showFloatingText(x: number, y: number, text: string, color: string): void {
+    if (!text) {
+      return;
+    }
+
+    const label = this.add
+      .text(x, y - 46, text, {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "15px",
+        color,
+        backgroundColor: "rgba(16, 20, 22, 0.72)",
+        padding: { x: 6, y: 3 }
+      })
+      .setOrigin(0.5)
+      .setDepth(110);
+
+    this.tweens.add({
+      targets: label,
+      y: label.y - 32,
+      alpha: 0,
+      duration: 900,
+      ease: "Sine.easeOut",
+      onComplete: () => label.destroy()
+    });
+  }
+
+  private showAttackEffect(event: CombatEvent): void {
+    const source = this.avatars.get(event.sourceId);
+    const start = source
+      ? { x: source.sprite.x, y: source.sprite.y - 10 }
+      : { x: event.x, y: event.y };
+    const projectile = this.add.circle(start.x, start.y, event.type === "special" ? 8 : 5, parseCssColor(event.color), 0.92)
+      .setDepth(105);
+
+    this.tweens.add({
+      targets: projectile,
+      x: event.x,
+      y: event.y,
+      alpha: 0.2,
+      duration: event.type === "special" ? 260 : 180,
+      ease: "Quad.easeOut",
+      onComplete: () => projectile.destroy()
+    });
+  }
+
+  private showAreaEffect(event: CombatEvent): void {
+    const radius = event.type === "mark" ? 48 : 120;
+    const circle = this.add
+      .circle(event.x, event.y, radius, parseCssColor(event.color), 0.12)
+      .setStrokeStyle(3, parseCssColor(event.color), 0.75)
+      .setDepth(44);
+
+    this.tweens.add({
+      targets: circle,
+      scaleX: 1.45,
+      scaleY: 1.45,
+      alpha: 0,
+      duration: 650,
+      ease: "Sine.easeOut",
+      onComplete: () => circle.destroy()
+    });
+  }
+
+  private flashEnemy(avatar: EnemyAvatar, color: number): void {
+    avatar.body.setFillStyle(color, 1);
+
+    this.time.delayedCall(110, () => {
+      const enemy = avatar.lastState;
+      const definition = ENEMY_DEFINITIONS[enemy.type];
+      avatar.body.setFillStyle(definition.color, enemy.alive ? 0.95 : 0.2);
+    });
+  }
+
+  private enemyAtWorldPoint(x: number, y: number): EnemyNetworkState | null {
+    let best: EnemyNetworkState | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    this.latestEnemies.forEach((enemy) => {
+      const definition = ENEMY_DEFINITIONS[enemy.type];
+      const distanceToEnemy = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
+
+      if (enemy.alive && distanceToEnemy <= definition.radius + 18 && distanceToEnemy < bestDistance) {
+        best = enemy;
+        bestDistance = distanceToEnemy;
+      }
+    });
+
+    return best;
+  }
+
+  private refreshEnemySelection(): void {
+    this.enemyAvatars.forEach((avatar) => {
+      avatar.selectionRing.setVisible(
+        avatar.enemyId === this.selectedEnemyId && avatar.lastState.alive
+      );
+    });
   }
 
   private saveCurrentProgress(): void {
-    if (!this.player) {
-      return;
-    }
+    const localPlayer = this.latestPlayers.get(this.profile.playerId);
+    const position = localPlayer
+      ? {
+          x: Math.round(localPlayer.x),
+          y: Math.round(localPlayer.y)
+        }
+      : this.progress.lastPosition;
 
     this.progress = {
       playerId: this.profile.playerId,
-      lastPosition: {
-        x: Math.round(this.player.x),
-        y: Math.round(this.player.y)
-      },
+      lastPosition: position,
       visitedBuildings: BUILDING_NAMES.filter((building) => this.visitedBuildings.has(building)),
       updatedAt: new Date().toISOString()
     };
@@ -401,8 +1146,41 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.emit("wuland:progressUpdated", this.progress);
   }
 
+  private setConnectionState(state: Partial<WulandConnectionState>): void {
+    this.connectionState = {
+      ...this.connectionState,
+      ...state
+    };
+    this.emitConnectionState();
+  }
+
+  private emitConnectionState(): void {
+    this.game.events.emit("wuland:connectionUpdated", this.connectionState);
+  }
+
+  private handleRoomLeave(code: number, reason?: string): void {
+    this.room = undefined;
+
+    if (this.leavingRoom || !this.sceneActive) {
+      return;
+    }
+
+    this.setConnectionState({
+      status: "disconnected",
+      message: reason || `Disconnected from WULAND server (${code})`
+    });
+  }
+
+  private handleRoomError(code: number, message?: string): void {
+    this.setConnectionState({
+      status: "error",
+      message: message || `WULAND server error (${code})`
+    });
+  }
+
   private openCharacterSelect(): void {
     this.saveCurrentProgress();
+    this.leaveRoom();
     this.scene.stop("UIScene");
     this.scene.start("CharacterSelectScene", {
       profile: this.profile,
@@ -411,12 +1189,57 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private handleShutdown(): void {
+    this.sceneActive = false;
     this.saveCurrentProgress();
+    this.sendMovementInput(ZERO_INPUT, true);
+    this.clearClickTarget(true);
+    this.leaveRoom();
     this.game.events.off("wuland:editCharacter", this.openCharacterSelect, this);
+    window.removeEventListener("blur", this.handleWindowBlur);
+    this.input.off("pointerdown", this.handlePointerDown, this);
+    this.mobileRoot?.remove();
+    this.mobileRoot = undefined;
+    document.body.removeAttribute("data-touch-controls");
+    this.destinationMarker?.destroy();
+    this.destinationMarker = undefined;
+    this.avatars.forEach((avatar) => this.destroyAvatar(avatar));
+    this.enemyAvatars.forEach((avatar) => this.destroyEnemyAvatar(avatar));
+    this.avatars.clear();
+    this.enemyAvatars.clear();
+    this.latestPlayers.clear();
+    this.latestEnemies.clear();
 
     if (this.scene.isActive("UIScene")) {
       this.scene.stop("UIScene");
     }
+  }
+
+  private leaveRoom(): void {
+    if (!this.room) {
+      return;
+    }
+
+    this.leavingRoom = true;
+    const room = this.room;
+    this.room = undefined;
+    void room.leave(true);
+  }
+
+  private destroyAvatar(avatar: PlayerAvatar): void {
+    avatar.sprite.destroy();
+    avatar.aura.destroy();
+    avatar.hpBg.destroy();
+    avatar.hpFill.destroy();
+    avatar.shieldFill.destroy();
+    avatar.nameLabel.destroy();
+    avatar.classLabel.destroy();
+    avatar.roleLabel.destroy();
+    avatar.statusLabel.destroy();
+    avatar.sleepLabel.destroy();
+  }
+
+  private destroyEnemyAvatar(avatar: EnemyAvatar): void {
+    avatar.container.destroy(true);
   }
 
   private isNearMainPath(x: number, y: number): boolean {
@@ -427,3 +1250,96 @@ export class WulandScene extends Phaser.Scene {
     return verticalPath || horizontalPath || upperPath;
   }
 }
+
+const movementInputsEqual = (a: MovementInput, b: MovementInput): boolean =>
+  a.left === b.left &&
+  a.right === b.right &&
+  a.up === b.up &&
+  a.down === b.down;
+
+const hasMovementInput = (input: MovementInput): boolean =>
+  input.left || input.right || input.up || input.down;
+
+const snapshotPlayer = (player: PlayerNetworkState): PlayerNetworkState => ({
+  playerId: player.playerId,
+  sessionId: player.sessionId,
+  name: player.name,
+  className: player.className,
+  gender: player.gender,
+  skinTone: player.skinTone,
+  hairStyle: player.hairStyle,
+  hairColor: player.hairColor,
+  outfitColor: player.outfitColor,
+  accessory: player.accessory,
+  spriteVariant: player.spriteVariant,
+  x: player.x,
+  y: player.y,
+  direction: player.direction,
+  moving: player.moving,
+  online: player.online,
+  sleeping: player.sleeping,
+  hp: player.hp,
+  maxHp: player.maxHp,
+  shield: player.shield,
+  defeated: player.defeated,
+  respawnAt: player.respawnAt,
+  specialCooldownUntil: player.specialCooldownUntil,
+  activeBuffs: player.activeBuffs,
+  markedTargets: player.markedTargets,
+  role: player.role,
+  joinedAt: player.joinedAt,
+  lastSeenAt: player.lastSeenAt,
+  lastSavedAt: player.lastSavedAt
+});
+
+const snapshotEnemy = (enemy: EnemyNetworkState): EnemyNetworkState => ({
+  enemyId: enemy.enemyId,
+  type: enemy.type,
+  name: enemy.name,
+  x: enemy.x,
+  y: enemy.y,
+  spawnX: enemy.spawnX,
+  spawnY: enemy.spawnY,
+  hp: enemy.hp,
+  maxHp: enemy.maxHp,
+  alive: enemy.alive,
+  targetPlayerId: enemy.targetPlayerId,
+  markedBy: enemy.markedBy,
+  markedUntil: enemy.markedUntil,
+  weakenedUntil: enemy.weakenedUntil,
+  respawnAt: enemy.respawnAt
+});
+
+const countPlayers = (
+  players: Map<string, PlayerNetworkState>,
+  status: "online" | "sleeping"
+): number => {
+  let count = 0;
+
+  players.forEach((player) => {
+    if (status === "online" && player.online) {
+      count += 1;
+    }
+
+    if (status === "sleeping" && (player.sleeping || !player.online)) {
+      count += 1;
+    }
+  });
+
+  return count;
+};
+
+const countAliveEnemies = (enemies: Map<string, EnemyNetworkState>): number => {
+  let count = 0;
+
+  enemies.forEach((enemy) => {
+    if (enemy.alive) {
+      count += 1;
+    }
+  });
+
+  return count;
+};
+
+const parseCssColor = (color: string): number =>
+  Number.parseInt(color.replace("#", ""), 16);

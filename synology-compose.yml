@@ -1,0 +1,38 @@
+name: wuland
+
+services:
+  wuland-server:
+    # Before uploading this file to Synology, replace YOUR_GITHUB_USERNAME.
+    # Example: ghcr.io/kirilbekulov/wuland-server:latest
+    image: ghcr.io/YOUR_GITHUB_USERNAME/wuland-server:latest
+    container_name: wuland-server
+    restart: unless-stopped
+    ports:
+      - "2567:2567"
+    environment:
+      NODE_ENV: production
+      PORT: 2567
+      ALLOWED_ORIGINS: "https://wuland.bekulov.com"
+      OFFLINE_PLAYER_TTL_HOURS: 168
+    volumes:
+      # If your NAS volume is not /volume1, change this path before uploading.
+      - /volume1/docker/wuland-data:/app/server/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:2567/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: wuland-tunnel
+    restart: unless-stopped
+    depends_on:
+      - wuland-server
+    # Replace PASTE_CLOUDFLARE_TUNNEL_TOKEN_HERE before uploading this file.
+    command: tunnel --no-autoupdate run --token PASTE_CLOUDFLARE_TUNNEL_TOKEN_HERE

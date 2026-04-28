@@ -5,12 +5,23 @@ import {
   OUTFIT_COLORS,
   SKIN_TONES,
   colorForOption,
+  type CharacterCosmetics,
+  type Gender,
+  type PlayerClass,
+  type PlayerNetworkState,
   type PlayerProfile
 } from "@wuland/shared";
 
+export interface CharacterTextureProfile {
+  playerId: string;
+  class: PlayerClass;
+  gender: Gender;
+  cosmetics: CharacterCosmetics;
+}
+
 export const createCharacterTexture = (
   scene: Phaser.Scene,
-  profile: PlayerProfile
+  profile: CharacterTextureProfile | PlayerProfile
 ): string => {
   const textureKey = [
     "player",
@@ -60,6 +71,22 @@ export const createCharacterTexture = (
   texture.refresh();
   return textureKey;
 };
+
+export const characterTextureProfileFromNetwork = (
+  state: PlayerNetworkState
+): CharacterTextureProfile => ({
+  playerId: state.playerId,
+  class: state.className,
+  gender: state.gender,
+  cosmetics: {
+    skinTone: state.skinTone,
+    hairStyle: state.hairStyle,
+    hairColor: state.hairColor,
+    outfitColor: state.outfitColor,
+    accessory: state.accessory,
+    spriteVariant: state.spriteVariant
+  }
+});
 
 const drawLegs = (
   context: CanvasRenderingContext2D,

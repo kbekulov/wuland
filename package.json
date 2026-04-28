@@ -2,7 +2,7 @@
   "name": "wuland",
   "version": "0.1.0",
   "private": true,
-  "description": "WULAND Phase 1 browser-playable RPG prototype.",
+  "description": "WULAND browser-playable RPG prototype with Colyseus multiplayer.",
   "type": "module",
   "workspaces": [
     "client",
@@ -10,20 +10,28 @@
     "server"
   ],
   "scripts": {
-    "dev": "npm run dev:client",
+    "dev": "npm --workspace shared run build && concurrently -k -n client,server -c cyan,magenta \"npm run dev:client\" \"npm run dev:server\"",
     "dev:client": "npm --workspace client run dev",
+    "dev:server": "npm --workspace server run dev",
     "preview": "npm run preview:client",
     "preview:client": "npm --workspace client run preview",
-    "build": "npm run build:client",
+    "build": "npm --workspace shared run build && npm run build:client && npm --workspace server run build",
     "build:client": "npm --workspace client run build",
+    "build:server": "npm --workspace shared run build && npm --workspace server run build",
     "build:pages-root": "npm run build && node scripts/sync-pages-root.mjs",
-    "typecheck": "npm --workspaces run typecheck"
+    "start:server": "npm --workspace server run start",
+    "typecheck": "npm --workspace shared run build && npm --workspace client run typecheck && npm --workspace shared run typecheck && npm --workspace server run typecheck"
   },
   "overrides": {
     "rollup": "npm:@rollup/wasm-node@^4.60.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.12.2",
+    "concurrently": "^9.2.1",
     "rollup": "npm:@rollup/wasm-node@^4.60.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }

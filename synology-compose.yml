@@ -31,8 +31,7 @@ services:
     restart: unless-stopped
     depends_on:
       - wuland-server
-    # Replace PASTE_CLOUDFLARE_TUNNEL_TOKEN_HERE before uploading this file.
-    command: tunnel --no-autoupdate run --token PASTE_CLOUDFLARE_TUNNEL_TOKEN_HERE
+    command: tunnel --no-autoupdate run --token PASTE_YOUR_CLOUDFLARE_TUNNEL_TOKEN_HERE
 
 volumes:
   wuland-player-data:

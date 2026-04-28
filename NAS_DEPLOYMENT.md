@@ -5,7 +5,7 @@ This guide runs the WULAND multiplayer server on a Synology NAS using Container 
 Recommended setup:
 
 - Client: `https://wuland.bekulov.com`
-- Server: `wss://wuland-server.bekulov.com`
+- Server: `wss://wuland-server.kbekulov.live`
 - Synology: runs the Docker containers
 - Cloudflare Tunnel: exposes the server without router port forwarding
 
@@ -107,14 +107,14 @@ Use this path if your domain is managed by Cloudflare.
 7. Add a Public Hostname:
 
 ```txt
-Hostname: wuland-server.bekulov.com
+Hostname: wuland-server.kbekulov.live
 Service: http://wuland-server:2567
 ```
 
 The browser will connect with:
 
 ```txt
-wss://wuland-server.bekulov.com
+wss://wuland-server.kbekulov.live
 ```
 
 Cloudflare supports WebSockets through proxied connections. No router port forwarding is needed for this tunnel setup.
@@ -173,13 +173,13 @@ Expected response:
 Then test the public tunnel:
 
 ```txt
-https://wuland-server.bekulov.com/health
+https://wuland-server.kbekulov.live/health
 ```
 
 If that works, WebSocket multiplayer should use:
 
 ```txt
-wss://wuland-server.bekulov.com
+wss://wuland-server.kbekulov.live
 ```
 
 ## 6. Build The Client For GitHub Pages
@@ -187,14 +187,14 @@ wss://wuland-server.bekulov.com
 The client must be built with:
 
 ```bash
-VITE_SERVER_URL=wss://wuland-server.bekulov.com
+VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 ```
 
 For GitHub Actions Pages deployment, add this repository variable:
 
 ```txt
 Name: VITE_SERVER_URL
-Value: wss://wuland-server.bekulov.com
+Value: wss://wuland-server.kbekulov.live
 ```
 
 Local example:

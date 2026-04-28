@@ -54,7 +54,7 @@ OFFLINE_PLAYER_TTL_HOURS=168
 For the live GitHub Pages client, set the repository variable `VITE_SERVER_URL` to your production WebSocket server URL, for example:
 
 ```bash
-VITE_SERVER_URL=wss://wuland-server.bekulov.com
+VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 ```
 
 ## Combat Controls
@@ -118,7 +118,7 @@ Recommended setup:
 ```txt
 GitHub Pages client: https://wuland.bekulov.com
 Synology Docker server: wuland-server
-Cloudflare Tunnel URL: wss://wuland-server.bekulov.com
+Cloudflare Tunnel URL: wss://wuland-server.kbekulov.live
 ```
 
 If Synology only lets you upload a YML file, use `synology-compose.yml`. It pulls the prebuilt `ghcr.io/kbekulov/wuland-server:latest` image and runs it with Cloudflare Tunnel.

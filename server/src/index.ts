@@ -18,6 +18,11 @@ const OFFLINE_PLAYER_TTL_HOURS = Number.parseFloat(
 );
 const CLEAR_PLAYER_STORE_ON_START = parseBoolean(process.env.CLEAR_PLAYER_STORE_ON_START);
 const ENEMY_AI_PAUSED = parseBoolean(process.env.ENEMY_AI_PAUSED);
+const GOD_MODE_ENABLED = parseBoolean(
+  process.env.GOD_MODE_ENABLED,
+  NODE_ENV !== "production"
+);
+const GOD_MODE_CODE = process.env.GOD_MODE_CODE?.trim() || "";
 
 const app = express();
 
@@ -42,7 +47,9 @@ app.get("/health", (_request, response) => {
     room: "wuland",
     offlinePlayerTtlHours: OFFLINE_PLAYER_TTL_HOURS,
     clearPlayerStoreOnStart: CLEAR_PLAYER_STORE_ON_START,
-    enemyAiPaused: ENEMY_AI_PAUSED
+    enemyAiPaused: ENEMY_AI_PAUSED,
+    godModeEnabled: GOD_MODE_ENABLED,
+    godModeCodeRequired: GOD_MODE_CODE.length > 0
   });
 });
 
@@ -62,7 +69,9 @@ const gameServer = new Server({
 gameServer.define("wuland", WulandRoom, {
   playerStore,
   offlinePlayerTtlHours: OFFLINE_PLAYER_TTL_HOURS,
-  enemyAiPaused: ENEMY_AI_PAUSED
+  enemyAiPaused: ENEMY_AI_PAUSED,
+  godModeEnabled: GOD_MODE_ENABLED,
+  godModeCode: GOD_MODE_CODE
 });
 gameServer.onShutdown(async () => {
   await playerStore.saveNow();
@@ -84,9 +93,9 @@ function parseAllowedOrigins(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function parseBoolean(value: string | undefined): boolean {
+function parseBoolean(value: string | undefined, fallback = false): boolean {
   if (!value) {
-    return false;
+    return fallback;
   }
 
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());

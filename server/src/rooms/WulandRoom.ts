@@ -2,6 +2,8 @@ import { Client, Room } from "colyseus";
 import { ArraySchema, MapSchema, Schema, type } from "@colyseus/schema";
 import {
   CLASS_METADATA,
+  CHAT_COOLDOWN_MS,
+  CHAT_MAX_MESSAGE_LENGTH,
   DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
   ENEMY_DEFINITIONS,
   HOTBAR_SLOT_COUNT,
@@ -11,6 +13,7 @@ import {
   PLAYER_MOVE_SPEED,
   PLAYER_RESPAWN_MS,
   WULAND_ENEMY_SPAWNS,
+  WULAND_AMBIENT_NPCS,
   WULAND_MAP_ID,
   WULAND_MERCHANT,
   WULAND_MERCHANT_STOCK,
@@ -25,7 +28,10 @@ import {
   getMapDefinition,
   isBuyItemRequest,
   isCakeItemDefinitionId,
+  isChatRequest,
   isCombatRequest,
+  isDeleteDroppedItemRequest,
+  isDeletePlayerRequest,
   isGiftItemRequest,
   isHotbarSelectRequest,
   isInventoryMoveRequest,
@@ -41,8 +47,14 @@ import {
   normalizeInventory,
   portalAtPosition,
   portalsForMap,
+  type AmbientNpcDefinition,
+  type AmbientNpcNetworkState,
+  type AmbientNpcType,
+  type ChatMessage,
   type CombatEvent,
   type CombatRequest,
+  type DeleteDroppedItemRequest,
+  type DeletePlayerRequest,
   type Direction,
   type DroppedItemNetworkState,
   type EnemyNetworkState,
@@ -56,6 +68,7 @@ import {
   type PlayerNetworkState,
   type PlayerProfile,
   type PortalDefinition,
+  type SpeechBubbleEvent,
   type WorldPosition,
   type WulandMapId,
   type WulandJoinOptions
@@ -78,6 +91,13 @@ const PICKUP_RANGE = 66;
 const GIFT_RANGE = 78;
 const PORTAL_INTERACT_RANGE = 84;
 const DROP_OFFSET = 34;
+const NPC_TARGET_REACHED_DISTANCE = 12;
+const NPC_TARGET_REFRESH_MS = 3800;
+const NPC_SAVE_INTERVAL_MS = 6000;
+const NPC_SPEECH_MIN_MS = 7000;
+const NPC_SPEECH_MAX_MS = 13500;
+const NPC_SPEECH_DURATION_MS = 3600;
+const FORCE_DELETED_CLOSE_CODE = 4008;
 
 export class WulandInventorySlotSchema extends Schema {
   @type("number") slotIndex = 0;
@@ -152,22 +172,43 @@ export class WulandDroppedItemSchema extends Schema {
   @type("string") droppedAt = "";
 }
 
+export class WulandNpcSchema extends Schema {
+  @type("string") npcId = "";
+  @type("string") type: AmbientNpcType = "intern";
+  @type("string") displayName = "";
+  @type("string") mapId: WulandMapId = WULAND_MAP_ID;
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") spawnX = 0;
+  @type("number") spawnY = 0;
+  @type("number") wanderRadius = 0;
+  @type("string") direction: Direction = "down";
+  @type("boolean") moving = false;
+  @type("string") speechText = "";
+  @type("number") speechUntil = 0;
+}
+
 export class WulandRoomState extends Schema {
   @type({ map: WulandPlayerSchema }) players = new MapSchema<WulandPlayerSchema>();
   @type({ map: WulandEnemySchema }) enemies = new MapSchema<WulandEnemySchema>();
   @type({ map: WulandDroppedItemSchema }) droppedItems = new MapSchema<WulandDroppedItemSchema>();
+  @type({ map: WulandNpcSchema }) npcs = new MapSchema<WulandNpcSchema>();
   @type("number") totalPlayers = 0;
   @type("number") onlinePlayers = 0;
   @type("number") sleepingPlayers = 0;
   @type("number") totalEnemies = 0;
   @type("number") aliveEnemies = 0;
   @type("number") totalDroppedItems = 0;
+  @type("boolean") godModeEnabled = false;
+  @type("boolean") godModeCodeRequired = false;
 }
 
 interface WulandRoomOptions {
   playerStore: PlayerStore;
   offlinePlayerTtlHours?: number;
   enemyAiPaused?: boolean;
+  godModeEnabled?: boolean;
+  godModeCode?: string;
 }
 
 export class WulandRoom extends Room<WulandRoomState> {
@@ -178,8 +219,16 @@ export class WulandRoom extends Room<WulandRoomState> {
   private readonly lastPersistedPosition = new Map<string, { x: number; y: number; at: number }>();
   private readonly lastBasicAttack = new Map<string, number>();
   private readonly enemyContactTimes = new Map<string, number>();
+  private readonly npcTargets = new Map<string, WorldPosition>();
+  private readonly npcNextSpeechAt = new Map<string, number>();
+  private readonly npcLastSavedAt = new Map<string, number>();
+  private readonly lastChatAt = new Map<string, number>();
   private enemyAiPaused = false;
+  private godModeEnabled = false;
+  private godModeCode = "";
   private combatEventCounter = 0;
+  private chatEventCounter = 0;
+  private speechEventCounter = 0;
 
   onCreate(options: WulandRoomOptions): void {
     this.roomId = ROOM_ID;
@@ -188,8 +237,12 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.patchRate = 1000 / NETWORK_TICK_RATE;
     this.playerStore = options.playerStore;
     this.enemyAiPaused = options.enemyAiPaused ?? false;
+    this.godModeEnabled = options.godModeEnabled ?? false;
+    this.godModeCode = options.godModeCode?.trim() ?? "";
 
     this.setState(new WulandRoomState());
+    this.state.godModeEnabled = this.godModeEnabled;
+    this.state.godModeCodeRequired = this.godModeCode.length > 0;
     this.playerStore.allVisiblePlayers().forEach((player) => {
       this.state.players.set(player.playerId, schemaFromRecord(player));
       this.lastPersistedPosition.set(player.playerId, {
@@ -201,6 +254,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.playerStore.allDroppedItems().forEach((item) => {
       this.state.droppedItems.set(item.droppedItemId, droppedItemFromRecord(item));
     });
+    this.spawnInitialNpcs();
     this.spawnInitialEnemies();
     this.updateCounts();
 
@@ -338,6 +392,36 @@ export class WulandRoom extends Room<WulandRoomState> {
       );
     });
 
+    this.onMessage("chat", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isChatRequest(message)) {
+        return;
+      }
+
+      this.handleChat(playerId, message.text);
+    });
+
+    this.onMessage("deleteDroppedItem", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isDeleteDroppedItemRequest(message)) {
+        return;
+      }
+
+      this.deleteDroppedItem(playerId, message);
+    });
+
+    this.onMessage("deletePlayer", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isDeletePlayerRequest(message)) {
+        return;
+      }
+
+      this.deletePlayer(playerId, message);
+    });
+
     this.setSimulationInterval(
       (deltaMs) => this.updateSimulation(deltaMs),
       1000 / NETWORK_TICK_RATE
@@ -349,6 +433,10 @@ export class WulandRoom extends Room<WulandRoomState> {
   onAuth(_client: Client, options: unknown): WulandJoinOptions {
     const joinOptions = validateJoinOptions(options);
     const existing = this.state.players.get(joinOptions.profile.playerId);
+
+    if (this.playerStore.isPlayerDeleted(joinOptions.profile.playerId)) {
+      throw new Error("PLAYER_DELETED: This WULAND character was deleted. Create a new one.");
+    }
 
     if (existing?.online) {
       throw new Error("This WULAND character is already connected in another tab.");
@@ -499,6 +587,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     });
 
     this.updateEnemies(deltaMs, now);
+    this.updateNpcs(deltaMs, now);
 
     if (anyCountChange) {
       this.updateCounts();
@@ -587,6 +676,106 @@ export class WulandRoom extends Room<WulandRoomState> {
     WULAND_ENEMY_SPAWNS.forEach((spawn) => {
       this.state.enemies.set(spawn.id, enemyFromSpawn(spawn.id, spawn.type, spawn.x, spawn.y, spawn.mapId));
     });
+  }
+
+  private spawnInitialNpcs(): void {
+    const stored = new Map(this.playerStore.allNpcStates().map((npc) => [npc.npcId, npc]));
+    const now = Date.now();
+
+    WULAND_AMBIENT_NPCS.forEach((definition) => {
+      const record = stored.get(definition.npcId);
+      const npc = npcFromDefinition(definition, record);
+      this.state.npcs.set(npc.npcId, npc);
+      this.npcTargets.set(npc.npcId, randomNpcTarget(npc, definition));
+      this.npcNextSpeechAt.set(npc.npcId, now + randomBetween(NPC_SPEECH_MIN_MS, NPC_SPEECH_MAX_MS));
+      this.npcLastSavedAt.set(npc.npcId, now);
+    });
+  }
+
+  private updateNpcs(deltaMs: number, now: number): void {
+    this.state.npcs.forEach((npc) => {
+      const definition = npcDefinitionFor(npc.npcId);
+
+      if (!definition) {
+        return;
+      }
+
+      if (npc.speechText && now > npc.speechUntil) {
+        npc.speechText = "";
+        npc.speechUntil = 0;
+      }
+
+      if (now >= (this.npcNextSpeechAt.get(npc.npcId) ?? 0)) {
+        npc.speechText = randomChoice(definition.speechLines);
+        npc.speechUntil = now + NPC_SPEECH_DURATION_MS;
+        this.npcNextSpeechAt.set(
+          npc.npcId,
+          now + randomBetween(NPC_SPEECH_MIN_MS, NPC_SPEECH_MAX_MS)
+        );
+        this.broadcastSpeechBubble({
+          sourceType: "npc",
+          sourceId: npc.npcId,
+          mapId: normalizeMapId(npc.mapId),
+          text: npc.speechText
+        });
+      }
+
+      let target = this.npcTargets.get(npc.npcId);
+      const targetAge = now - (this.npcLastSavedAt.get(`${npc.npcId}:target`) ?? 0);
+
+      if (!target || distance(npc, target) <= NPC_TARGET_REACHED_DISTANCE || targetAge > NPC_TARGET_REFRESH_MS) {
+        target = randomNpcTarget(npc, definition);
+        this.npcTargets.set(npc.npcId, target);
+        this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
+      }
+
+      this.moveNpcToward(npc, target, definition.speed, deltaMs);
+      this.persistNpcIfNeeded(npc, now);
+    });
+  }
+
+  private moveNpcToward(
+    npc: WulandNpcSchema,
+    target: WorldPosition,
+    speed: number,
+    deltaMs: number
+  ): void {
+    const dx = target.x - npc.x;
+    const dy = target.y - npc.y;
+    const length = Math.hypot(dx, dy);
+
+    if (length < NPC_TARGET_REACHED_DISTANCE) {
+      npc.moving = false;
+      return;
+    }
+
+    const vector = {
+      x: dx / length,
+      y: dy / length
+    };
+    const mapId = normalizeMapId(npc.mapId);
+    const result = applyServerVectorMovement(
+      { x: npc.x, y: npc.y },
+      vector,
+      deltaMs * (speed / PLAYER_MOVE_SPEED),
+      npc.direction,
+      getMapCollisionRects(mapId),
+      getMapDefinition(mapId)
+    );
+
+    if (result.blocked) {
+      const definition = npcDefinitionFor(npc.npcId);
+
+      if (definition) {
+        this.npcTargets.set(npc.npcId, randomNpcTarget(npc, definition));
+        this.npcLastSavedAt.set(`${npc.npcId}:target`, Date.now());
+      }
+    }
+
+    npc.x = result.position.x;
+    npc.y = result.position.y;
+    npc.direction = result.direction;
+    npc.moving = result.moving;
   }
 
   private updateEnemies(deltaMs: number, now: number): void {
@@ -1216,6 +1405,135 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.broadcastCombatEvent("gift", giver.playerId, receiver.playerId, receiver.x, receiver.y, 0, `${giver.name} gave you ${displayName}`, "#ffdeeb", item.itemDefinitionId);
   }
 
+  private handleChat(playerId: string, rawText: string): void {
+    const player = this.state.players.get(playerId);
+    const now = Date.now();
+
+    if (!player || !player.online || player.sleeping) {
+      return;
+    }
+
+    const previous = this.lastChatAt.get(playerId) ?? 0;
+
+    if (now - previous < CHAT_COOLDOWN_MS) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Chat cooldown", "#ffd8a8");
+      return;
+    }
+
+    const text = sanitizeChatText(rawText);
+
+    if (!text) {
+      return;
+    }
+
+    this.lastChatAt.set(playerId, now);
+    this.chatEventCounter += 1;
+    const message = {
+      messageId: `${now}-${this.chatEventCounter}`,
+      playerId: player.playerId,
+      playerName: player.name,
+      mapId: normalizeMapId(player.mapId),
+      text,
+      sentAt: new Date(now).toISOString()
+    } satisfies ChatMessage;
+    this.broadcast("chatMessage", message);
+    this.broadcastSpeechBubble({
+      sourceType: "player",
+      sourceId: player.playerId,
+      mapId: normalizeMapId(player.mapId),
+      text
+    });
+  }
+
+  private deleteDroppedItem(requesterId: string, request: DeleteDroppedItemRequest): void {
+    const requester = this.state.players.get(requesterId);
+    const droppedItem = this.state.droppedItems.get(request.droppedItemId);
+
+    if (!requester || !requester.online || !this.canUseGodMode(requester, request.code)) {
+      return;
+    }
+
+    if (!droppedItem || normalizeMapId(droppedItem.mapId) !== normalizeMapId(requester.mapId)) {
+      this.broadcastCombatEvent("notice", requester.playerId, requester.playerId, requester.x, requester.y, 0, "No item to delete here", "#ffd8a8");
+      return;
+    }
+
+    const mapId = normalizeMapId(droppedItem.mapId);
+    const x = droppedItem.x;
+    const y = droppedItem.y;
+    const itemName = ITEM_DEFINITIONS[droppedItem.itemDefinitionId as ItemDefinitionId]?.displayName ?? "Item";
+    this.state.droppedItems.delete(droppedItem.droppedItemId);
+    this.playerStore.removeDroppedItem(droppedItem.droppedItemId, { immediate: true });
+    this.updateCounts();
+    this.broadcastMapEvent("delete", requester.playerId, droppedItem.droppedItemId, mapId, x, y, `${itemName} deleted`, "#ff8787");
+  }
+
+  private deletePlayer(requesterId: string, request: DeletePlayerRequest): void {
+    const requester = this.state.players.get(requesterId);
+
+    if (!requester || !requester.online || !this.canUseGodMode(requester, request.code)) {
+      return;
+    }
+
+    if (request.playerId === requester.playerId) {
+      this.broadcastCombatEvent("notice", requester.playerId, requester.playerId, requester.x, requester.y, 0, "Cannot delete yourself", "#ffd8a8");
+      return;
+    }
+
+    const target = this.state.players.get(request.playerId);
+
+    if (!target) {
+      this.playerStore.markPlayerDeleted(request.playerId, { immediate: true });
+      this.broadcastCombatEvent("notice", requester.playerId, requester.playerId, requester.x, requester.y, 0, "Player record deleted", "#ff8787");
+      return;
+    }
+
+    const targetMapId = normalizeMapId(target.mapId);
+    const targetX = target.x;
+    const targetY = target.y;
+    const targetName = target.name;
+    const targetSessionId = target.sessionId;
+    const targetClient = targetSessionId
+      ? this.clients.find((client) => client.sessionId === targetSessionId)
+      : undefined;
+
+    if (targetClient) {
+      targetClient.send("forceDeleted", {
+        playerId: target.playerId,
+        message: "Your character was deleted. Create a new one to re-enter WULAND."
+      });
+    }
+
+    this.state.players.delete(target.playerId);
+    this.sessionToPlayerId.delete(targetSessionId);
+    this.inputs.delete(target.playerId);
+    this.moveTargets.delete(target.playerId);
+    this.lastBasicAttack.delete(target.playerId);
+    this.lastChatAt.delete(target.playerId);
+    this.lastPersistedPosition.delete(target.playerId);
+    this.playerStore.markPlayerDeleted(target.playerId, { immediate: true });
+    this.updateCounts();
+    this.broadcastMapEvent("delete", requester.playerId, target.playerId, targetMapId, targetX, targetY, `${targetName} deleted`, "#ff8787");
+
+    if (targetClient) {
+      targetClient.leave(FORCE_DELETED_CLOSE_CODE, "PLAYER_DELETED");
+    }
+  }
+
+  private canUseGodMode(player: WulandPlayerSchema, code: string | undefined): boolean {
+    if (!this.godModeEnabled) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "God Mode is disabled", "#ffd8a8");
+      return false;
+    }
+
+    if (this.godModeCode && code !== this.godModeCode) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Wrong God Mode code", "#ffd8a8");
+      return false;
+    }
+
+    return true;
+  }
+
   private respawnEnemy(enemy: WulandEnemySchema): void {
     const definition = ENEMY_DEFINITIONS[enemy.type as EnemyType];
     enemy.x = enemy.spawnX;
@@ -1259,6 +1577,43 @@ export class WulandRoom extends Room<WulandRoomState> {
     } satisfies CombatEvent);
   }
 
+  private broadcastMapEvent(
+    type: CombatEvent["type"],
+    sourceId: string,
+    targetId: string,
+    mapId: WulandMapId,
+    x: number,
+    y: number,
+    text: string,
+    color: string
+  ): void {
+    this.combatEventCounter += 1;
+    this.broadcast("combatEvent", {
+      id: `${Date.now()}-${this.combatEventCounter}`,
+      type,
+      sourceId,
+      targetId,
+      mapId,
+      x,
+      y,
+      value: 0,
+      text,
+      color
+    } satisfies CombatEvent);
+  }
+
+  private broadcastSpeechBubble(
+    event: Omit<SpeechBubbleEvent, "id" | "sentAt">
+  ): void {
+    this.speechEventCounter += 1;
+    this.broadcast("speechBubble", {
+      ...event,
+      id: `${Date.now()}-${this.speechEventCounter}`,
+      text: sanitizeChatText(event.text),
+      sentAt: new Date().toISOString()
+    } satisfies SpeechBubbleEvent);
+  }
+
   private mapIdForCombatEvent(sourceId: string, targetId: string): WulandMapId {
     return normalizeMapId(
       this.state.players.get(sourceId)?.mapId ??
@@ -1300,6 +1655,17 @@ export class WulandRoom extends Room<WulandRoomState> {
       at: Date.now()
     });
     this.playerStore.upsert(recordFromSchema(player), { immediate });
+  }
+
+  private persistNpcIfNeeded(npc: WulandNpcSchema, now: number): void {
+    const previous = this.npcLastSavedAt.get(npc.npcId) ?? 0;
+
+    if (now - previous < NPC_SAVE_INTERVAL_MS) {
+      return;
+    }
+
+    this.npcLastSavedAt.set(npc.npcId, now);
+    this.playerStore.upsertNpcState(recordFromNpc(npc));
   }
 
   private cleanupExpiredOfflinePlayers(): void {
@@ -1436,6 +1802,77 @@ const enemyFromSpawn = (
   enemy.maxHp = definition.maxHp;
   enemy.alive = true;
   return enemy;
+};
+
+const npcDefinitionFor = (npcId: string): AmbientNpcDefinition | undefined =>
+  WULAND_AMBIENT_NPCS.find((npc) => npc.npcId === npcId);
+
+const npcFromDefinition = (
+  definition: AmbientNpcDefinition,
+  record?: AmbientNpcNetworkState
+): WulandNpcSchema => {
+  const npc = new WulandNpcSchema();
+  const mapId = normalizeMapId(record?.mapId ?? definition.mapId);
+  const position = clampMapPosition(
+    record && isValidMapPosition({ x: record.x, y: record.y }, mapId)
+      ? { x: record.x, y: record.y }
+      : { x: definition.x, y: definition.y },
+    mapId
+  );
+
+  npc.npcId = definition.npcId;
+  npc.type = definition.type;
+  npc.displayName = definition.displayName;
+  npc.mapId = definition.mapId;
+  npc.x = position.x;
+  npc.y = position.y;
+  npc.spawnX = definition.x;
+  npc.spawnY = definition.y;
+  npc.wanderRadius = definition.wanderRadius;
+  npc.direction = record?.direction ?? "down";
+  npc.moving = false;
+  npc.speechText = record?.speechText ?? "";
+  npc.speechUntil = record?.speechUntil ?? 0;
+  return npc;
+};
+
+const recordFromNpc = (npc: WulandNpcSchema): AmbientNpcNetworkState => ({
+  npcId: npc.npcId,
+  type: npc.type as AmbientNpcType,
+  displayName: npc.displayName,
+  mapId: normalizeMapId(npc.mapId),
+  x: npc.x,
+  y: npc.y,
+  spawnX: npc.spawnX,
+  spawnY: npc.spawnY,
+  wanderRadius: npc.wanderRadius,
+  direction: npc.direction,
+  moving: npc.moving,
+  speechText: npc.speechText,
+  speechUntil: npc.speechUntil
+});
+
+const randomNpcTarget = (
+  npc: WulandNpcSchema,
+  definition: AmbientNpcDefinition
+): WorldPosition => {
+  const mapId = normalizeMapId(definition.mapId);
+  const collisions = getMapCollisionRects(mapId);
+
+  for (let attempt = 0; attempt < 14; attempt += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = Math.random() * definition.wanderRadius;
+    const candidate = clampMapPosition({
+      x: definition.x + Math.cos(angle) * radius,
+      y: definition.y + Math.sin(angle) * radius
+    }, mapId);
+
+    if (!collidesWithWorld(candidate, collisions)) {
+      return candidate;
+    }
+  }
+
+  return clampMapPosition({ x: npc.spawnX, y: npc.spawnY }, mapId);
 };
 
 const canFight = (player: WulandPlayerSchema): boolean =>
@@ -1741,6 +2178,19 @@ const healAmountForItem = (definition: ItemDefinition): number => {
 
   return definition.healAmount ?? 0;
 };
+
+const sanitizeChatText = (value: string): string =>
+  value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, CHAT_MAX_MESSAGE_LENGTH);
+
+const randomBetween = (min: number, max: number): number =>
+  min + Math.floor(Math.random() * Math.max(1, max - min));
+
+const randomChoice = <T>(items: readonly T[]): T =>
+  items[Math.floor(Math.random() * items.length)] ?? items[0];
 
 const droppedItemFromRecord = (record: DroppedItemNetworkState): WulandDroppedItemSchema => {
   const droppedItem = new WulandDroppedItemSchema();

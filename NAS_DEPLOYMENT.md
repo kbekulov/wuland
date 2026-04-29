@@ -38,9 +38,10 @@ Current prototype settings in `synology-compose.yml`:
 ```yaml
 CLEAR_PLAYER_STORE_ON_START: "false"
 ENEMY_AI_PAUSED: "true"
+GOD_MODE_ENABLED: "true"
 ```
 
-That means sleeping players, inventories, and dropped items persist normally, while enemies remain frozen in place for now. `pull_policy: always` helps Synology pull a fresh `latest` image when the project is updated.
+That means sleeping players, inventories, dropped items, deleted player IDs, and NPC state persist normally, while enemies remain frozen in place for now. God Mode is enabled as a prototype admin cleanup tool. `pull_policy: always` helps Synology pull a fresh `latest` image when the project is updated.
 
 This option does not require copying the whole project to the NAS. The NAS pulls the already-built game server image from GitHub Container Registry.
 
@@ -101,6 +102,8 @@ WULAND_SERVER_PORT=2567
 OFFLINE_PLAYER_TTL_HOURS=168
 CLEAR_PLAYER_STORE_ON_START=false
 ENEMY_AI_PAUSED=false
+GOD_MODE_ENABLED=true
+GOD_MODE_CODE=
 CLOUDFLARE_TUNNEL_TOKEN=replace_with_your_cloudflare_tunnel_token
 ```
 
@@ -247,4 +250,4 @@ the Docker volume named wuland-player-data
 
 This survives container rebuilds and restarts because `wuland-player-data` is mounted into the container at `/app/server/data`.
 
-JSON persistence is prototype-only. A serious public production version should use accounts/authentication and database persistence such as SQLite, Redis, Postgres, or another managed database.
+JSON persistence stores sleeping players, inventories, dropped items, NPC state, and deleted player IDs. It is prototype-only. A serious public production version should use accounts/authentication, real admin authorization for God Mode, and database persistence such as SQLite, Redis, Postgres, or another managed database.

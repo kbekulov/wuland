@@ -7,6 +7,7 @@ import {
   PLAYER_MAX_HP,
   WULAND_WORLD,
   clampMapPosition,
+  isAmbientNpcNetworkState,
   isCharacterCosmetics,
   isDroppedItemNetworkState,
   isDirection,
@@ -16,12 +17,13 @@ import {
   isValidMapPosition,
   normalizeMapId,
   normalizeInventory,
+  type AmbientNpcNetworkState,
   type Direction,
   type DroppedItemNetworkState,
   type PlayerNetworkState
 } from "@wuland/shared";
 
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 const DEFAULT_STORE_PATH = fileURLToPath(
   new URL("../../data/wuland-players.json", import.meta.url)
 );
@@ -31,6 +33,8 @@ interface PlayerStoreFile {
   version: number;
   players: PlayerNetworkState[];
   droppedItems?: DroppedItemNetworkState[];
+  npcStates?: AmbientNpcNetworkState[];
+  deletedPlayerIds?: string[];
 }
 
 export interface PlayerStoreOptions {
@@ -45,6 +49,8 @@ export class PlayerStore {
   private readonly clearOnStart: boolean;
   private readonly players = new Map<string, PlayerNetworkState>();
   private readonly droppedItems = new Map<string, DroppedItemNetworkState>();
+  private readonly npcStates = new Map<string, AmbientNpcNetworkState>();
+  private readonly deletedPlayerIds = new Set<string>();
   private saveTimer?: NodeJS.Timeout;
   private loaded = false;
 
@@ -64,6 +70,9 @@ export class PlayerStore {
 
     if (this.clearOnStart) {
       this.players.clear();
+      this.droppedItems.clear();
+      this.npcStates.clear();
+      this.deletedPlayerIds.clear();
       this.loaded = true;
       await this.saveNow();
       console.log("[WULAND] Stored sleeping players cleared on startup.");
@@ -80,6 +89,12 @@ export class PlayerStore {
         });
         parsed.droppedItems?.forEach((droppedItem) => {
           this.droppedItems.set(droppedItem.droppedItemId, cloneDroppedItem(droppedItem));
+        });
+        parsed.npcStates?.forEach((npc) => {
+          this.npcStates.set(npc.npcId, cloneNpcState(npc));
+        });
+        parsed.deletedPlayerIds?.forEach((playerId) => {
+          this.deletedPlayerIds.add(playerId);
         });
       }
     } catch (error) {
@@ -130,6 +145,21 @@ export class PlayerStore {
     this.scheduleSave();
   }
 
+  allNpcStates(): AmbientNpcNetworkState[] {
+    return [...this.npcStates.values()].map(cloneNpcState);
+  }
+
+  upsertNpcState(npc: AmbientNpcNetworkState, options: { immediate?: boolean } = {}): void {
+    this.npcStates.set(npc.npcId, cloneNpcState(npc));
+
+    if (options.immediate) {
+      void this.saveNow();
+      return;
+    }
+
+    this.scheduleSave();
+  }
+
   upsert(player: PlayerNetworkState, options: { immediate?: boolean } = {}): void {
     this.players.set(player.playerId, clonePlayer(player));
 
@@ -139,6 +169,33 @@ export class PlayerStore {
     }
 
     this.scheduleSave();
+  }
+
+  removePlayer(playerId: string, options: { immediate?: boolean } = {}): void {
+    this.players.delete(playerId);
+
+    if (options.immediate) {
+      void this.saveNow();
+      return;
+    }
+
+    this.scheduleSave();
+  }
+
+  markPlayerDeleted(playerId: string, options: { immediate?: boolean } = {}): void {
+    this.players.delete(playerId);
+    this.deletedPlayerIds.add(playerId);
+
+    if (options.immediate) {
+      void this.saveNow();
+      return;
+    }
+
+    this.scheduleSave();
+  }
+
+  isPlayerDeleted(playerId: string): boolean {
+    return this.deletedPlayerIds.has(playerId);
   }
 
   removeExpiredOfflinePlayers(): number {
@@ -186,7 +243,9 @@ export class PlayerStore {
     const payload: PlayerStoreFile = {
       version: STORE_VERSION,
       players: [...this.players.values()].map(clonePlayer),
-      droppedItems: [...this.droppedItems.values()].map(cloneDroppedItem)
+      droppedItems: [...this.droppedItems.values()].map(cloneDroppedItem),
+      npcStates: [...this.npcStates.values()].map(cloneNpcState),
+      deletedPlayerIds: [...this.deletedPlayerIds.values()]
     };
 
     await writeFile(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -206,13 +265,33 @@ const isPlayerStoreFile = (value: unknown): value is PlayerStoreFile => {
     return false;
   }
 
-  const file = value as { players: unknown; droppedItems?: unknown };
+  const file = value as {
+    players: unknown;
+    droppedItems?: unknown;
+    npcStates?: unknown;
+    deletedPlayerIds?: unknown;
+  };
   const droppedItems =
     !("droppedItems" in file) ||
     file.droppedItems === undefined ||
     (Array.isArray(file.droppedItems) && file.droppedItems.every(isDroppedItemNetworkState));
+  const npcStates =
+    !("npcStates" in file) ||
+    file.npcStates === undefined ||
+    (Array.isArray(file.npcStates) && file.npcStates.every(isAmbientNpcNetworkState));
+  const deletedPlayerIds =
+    !("deletedPlayerIds" in file) ||
+    file.deletedPlayerIds === undefined ||
+    (Array.isArray(file.deletedPlayerIds) &&
+      file.deletedPlayerIds.every((playerId) => typeof playerId === "string"));
 
-  return Array.isArray(file.players) && file.players.every(isStoredPlayer) && droppedItems;
+  return (
+    Array.isArray(file.players) &&
+    file.players.every(isStoredPlayer) &&
+    droppedItems &&
+    npcStates &&
+    deletedPlayerIds
+  );
 };
 
 const isStoredPlayer = (value: unknown): value is PlayerNetworkState => {
@@ -303,6 +382,24 @@ const cloneDroppedItem = (item: DroppedItemNetworkState): DroppedItemNetworkStat
   mapId: normalizeMapId(item.mapId),
   ...clampDroppedItemPosition(item)
 });
+
+const cloneNpcState = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => {
+  const mapId = normalizeMapId(npc.mapId);
+  const position = clampMapPosition({ x: npc.x, y: npc.y }, mapId);
+  const spawn = clampMapPosition({ x: npc.spawnX, y: npc.spawnY }, mapId);
+
+  return {
+    ...npc,
+    mapId,
+    x: position.x,
+    y: position.y,
+    spawnX: spawn.x,
+    spawnY: spawn.y,
+    direction: isDirection(npc.direction) ? npc.direction : "down",
+    speechText: npc.speechText.slice(0, 140),
+    speechUntil: Number.isFinite(npc.speechUntil) ? npc.speechUntil : 0
+  };
+};
 
 const clampDroppedItemPosition = (
   item: DroppedItemNetworkState

@@ -17,6 +17,11 @@ services:
       # Temporary prototype setting: enemies remain visible/attackable but do
       # not wander, chase, or deal contact damage.
       ENEMY_AI_PAUSED: "true"
+      # Prototype admin cleanup tool. Keep true for your private test server;
+      # set false for any public server without real admin auth.
+      GOD_MODE_ENABLED: "true"
+      # Optional. Set a value to require a code before destructive actions.
+      GOD_MODE_CODE: ""
     volumes:
       - wuland-player-data:/app/server/data
     healthcheck:

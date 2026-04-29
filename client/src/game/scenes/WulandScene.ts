@@ -1,10 +1,12 @@
 import Phaser from "phaser";
 import {
   BUILDING_NAMES,
+  CHAT_MAX_MESSAGE_LENGTH,
   CLASS_METADATA,
   ENEMY_DEFINITIONS,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
+  WULAND_AMBIENT_NPCS,
   MAP_ID_TO_BUILDING_NAME,
   WULAND_MAP_ID,
   WULAND_MAPS,
@@ -17,11 +19,14 @@ import {
   isCakeItemDefinitionId,
   portalAtPosition,
   portalsForMap,
+  type AmbientNpcNetworkState,
+  type ChatMessage,
   type BuildingName,
   type CombatEvent,
   type Direction,
   type DroppedItemNetworkState,
   type EnemyNetworkState,
+  type ForceDeletedEvent,
   type InventorySlotState,
   type ItemDefinitionId,
   type LocalProgress,
@@ -29,9 +34,11 @@ import {
   type PlayerNetworkState,
   type PlayerProfile,
   type PortalDefinition,
+  type SpeechBubbleEvent,
   type WulandMapId
 } from "@wuland/shared";
 import {
+  clearAllSaveData,
   createInitialProgress,
   loadPlayerProfile,
   loadProgress,
@@ -107,6 +114,17 @@ interface DroppedItemAvatar {
   lastState: DroppedItemNetworkState;
 }
 
+interface NpcAvatar {
+  npcId: string;
+  container: Phaser.GameObjects.Container;
+  body: Phaser.GameObjects.Arc;
+  accent: Phaser.GameObjects.Rectangle;
+  nameLabel: Phaser.GameObjects.Text;
+  speechLabel: Phaser.GameObjects.Text;
+  target: Phaser.Math.Vector2;
+  lastState: AmbientNpcNetworkState;
+}
+
 export interface WulandConnectionState {
   status: "connecting" | "connected" | "disconnected" | "error";
   message: string;
@@ -130,6 +148,9 @@ export interface WulandConnectionState {
   currentMapId: WulandMapId;
   currentMapName: string;
   totalDroppedItems: number;
+  godModeAvailable: boolean;
+  godModeCodeRequired: boolean;
+  godModeActive: boolean;
 }
 
 const ZERO_INPUT: MovementInput = {
@@ -155,9 +176,11 @@ export class WulandScene extends Phaser.Scene {
   private avatars = new Map<string, PlayerAvatar>();
   private enemyAvatars = new Map<string, EnemyAvatar>();
   private droppedItemAvatars = new Map<string, DroppedItemAvatar>();
+  private npcAvatars = new Map<string, NpcAvatar>();
   private latestPlayers = new Map<string, PlayerNetworkState>();
   private latestEnemies = new Map<string, EnemyNetworkState>();
   private latestDroppedItems = new Map<string, DroppedItemNetworkState>();
+  private latestNpcs = new Map<string, AmbientNpcNetworkState>();
   private currentMapId: WulandMapId = WULAND_MAP_ID;
   private connectionState: WulandConnectionState = {
     status: "connecting",
@@ -181,8 +204,13 @@ export class WulandScene extends Phaser.Scene {
     nearbyGiftPlayerName: "",
     currentMapId: WULAND_MAP_ID,
     currentMapName: getMapDisplayName(WULAND_MAP_ID),
-    totalDroppedItems: 0
+    totalDroppedItems: 0,
+    godModeAvailable: false,
+    godModeCodeRequired: false,
+    godModeActive: false
   };
+  private godModeActive = false;
+  private godModeCode = "";
   private selectedEnemyId = "";
   private virtualInput: MovementInput = { ...ZERO_INPUT };
   private clickTarget?: Phaser.Math.Vector2;
@@ -197,6 +225,7 @@ export class WulandScene extends Phaser.Scene {
   private lastInputSentAt = 0;
   private lastProgressSave = 0;
   private leavingRoom = false;
+  private deletedByServer = false;
   private sceneActive = false;
   private readonly handleWindowBlur = (): void => {
     this.lastInput = { ...ZERO_INPUT };
@@ -222,10 +251,14 @@ export class WulandScene extends Phaser.Scene {
     this.avatars.clear();
     this.enemyAvatars.clear();
     this.droppedItemAvatars.clear();
+    this.npcAvatars.clear();
     this.latestPlayers.clear();
     this.latestEnemies.clear();
     this.latestDroppedItems.clear();
+    this.latestNpcs.clear();
     this.selectedEnemyId = "";
+    this.godModeActive = false;
+    this.godModeCode = "";
     this.virtualInput = { ...ZERO_INPUT };
     this.clickTarget = undefined;
     this.currentMapId = data.progress?.currentMapId ?? this.progress?.currentMapId ?? WULAND_MAP_ID;
@@ -233,6 +266,7 @@ export class WulandScene extends Phaser.Scene {
     this.lastTargetDistance = Number.POSITIVE_INFINITY;
     this.lastTargetProgressAt = 0;
     this.leavingRoom = false;
+    this.deletedByServer = false;
     this.sceneActive = true;
     this.connectionState = {
       status: "connecting",
@@ -256,7 +290,10 @@ export class WulandScene extends Phaser.Scene {
       nearbyGiftPlayerName: "",
       currentMapId: this.currentMapId,
       currentMapName: getMapDisplayName(this.currentMapId),
-      totalDroppedItems: 0
+      totalDroppedItems: 0,
+      godModeAvailable: false,
+      godModeCodeRequired: false,
+      godModeActive: false
     };
 
     this.drawCurrentMap(this.currentMapId);
@@ -275,6 +312,8 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.on("wuland:moveHotbarItem", this.moveHotbarItem, this);
     this.game.events.on("wuland:discardHotbarItem", this.discardHotbarItem, this);
     this.game.events.on("wuland:buyMerchantItem", this.buyMerchantItem, this);
+    this.game.events.on("wuland:sendChat", this.sendChatMessage, this);
+    this.game.events.on("wuland:setGodMode", this.setGodMode, this);
     window.addEventListener("blur", this.handleWindowBlur);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
 
@@ -286,6 +325,7 @@ export class WulandScene extends Phaser.Scene {
     this.sendCombatForKeyboard();
     this.updateAvatarPositions(delta);
     this.updateEnemyPositions(delta);
+    this.updateNpcPositions(delta);
 
     const localPlayer = this.latestPlayers.get(this.profile.playerId);
 
@@ -335,13 +375,32 @@ export class WulandScene extends Phaser.Scene {
       });
       room.onStateChange((state) => this.handleRoomState(state));
       room.onMessage("combatEvent", (event: CombatEvent) => this.handleCombatEvent(event));
+      room.onMessage("chatMessage", (message: ChatMessage) => this.handleChatMessage(message));
+      room.onMessage("speechBubble", (event: SpeechBubbleEvent) => this.handleSpeechBubble(event));
+      room.onMessage("forceDeleted", (event: ForceDeletedEvent) => this.handleForceDeleted(event));
       room.onLeave((code, reason) => this.handleRoomLeave(code, reason));
       room.onError((code, message) => this.handleRoomError(code, message));
       this.handleRoomState(room.state);
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not connect to WULAND server";
+
+      if (message.includes("PLAYER_DELETED")) {
+        clearAllSaveData();
+        this.deletedByServer = true;
+        this.setConnectionState({
+          status: "error",
+          message: "Your character was deleted. Create a new one to re-enter WULAND."
+        });
+        this.scene.stop("UIScene");
+        this.scene.start("CharacterSelectScene", {
+          message: "Your character was deleted. Create a new one to re-enter WULAND."
+        });
+        return;
+      }
+
       this.setConnectionState({
         status: "error",
-        message: error instanceof Error ? error.message : "Could not connect to WULAND server"
+        message
       });
     }
   }
@@ -908,6 +967,11 @@ export class WulandScene extends Phaser.Scene {
       return;
     }
 
+    if (isGameplayInputBlocked()) {
+      this.sendMovementInput(ZERO_INPUT, true);
+      return;
+    }
+
     const keyboardInput: MovementInput = {
       left: Boolean(this.cursors.left?.isDown || this.wasd.left.isDown),
       right: Boolean(this.cursors.right?.isDown || this.wasd.right.isDown),
@@ -947,6 +1011,10 @@ export class WulandScene extends Phaser.Scene {
 
   private sendCombatForKeyboard(): void {
     if (!this.combatKeys) {
+      return;
+    }
+
+    if (isGameplayInputBlocked()) {
       return;
     }
 
@@ -1021,6 +1089,24 @@ export class WulandScene extends Phaser.Scene {
     this.room?.send("discardInventoryItem", { slotIndex });
   }
 
+  private sendChatMessage(payload: { text: string }): void {
+    const text = payload.text.trim().slice(0, CHAT_MAX_MESSAGE_LENGTH);
+
+    if (text.length === 0) {
+      return;
+    }
+
+    this.room?.send("chat", { text });
+  }
+
+  private setGodMode(payload: { active: boolean; code?: string }): void {
+    this.godModeActive = payload.active && this.connectionState.godModeAvailable;
+    this.godModeCode = payload.code ?? this.godModeCode;
+    this.setConnectionState({
+      godModeActive: this.godModeActive
+    });
+  }
+
   private buildCombatRequest(targetEnemyId: string): { targetEnemyId?: string; direction: Direction } {
     const localPlayer = this.latestPlayers.get(this.profile.playerId);
     const enemy = targetEnemyId ? this.latestEnemies.get(targetEnemyId) : undefined;
@@ -1037,6 +1123,11 @@ export class WulandScene extends Phaser.Scene {
     }
 
     const worldPoint = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+
+    if (this.godModeActive && this.handleGodModePointer(worldPoint.x, worldPoint.y)) {
+      return;
+    }
+
     const enemy = this.enemyAtWorldPoint(worldPoint.x, worldPoint.y);
 
     if (!enemy) {
@@ -1063,6 +1154,41 @@ export class WulandScene extends Phaser.Scene {
     this.lastTargetProgressAt = this.time.now;
     this.room?.send("moveTarget", target);
     this.showDestinationMarker(target.x, target.y);
+  }
+
+  private handleGodModePointer(x: number, y: number): boolean {
+    const droppedItem = this.droppedItemAtWorldPoint(x, y);
+
+    if (droppedItem) {
+      const definition = ITEM_DEFINITIONS[droppedItem.itemDefinitionId];
+      if (window.confirm(`Delete dropped item "${definition.displayName}" from the server?`)) {
+        this.room?.send("deleteDroppedItem", {
+          droppedItemId: droppedItem.droppedItemId,
+          code: this.godModeCode
+        });
+      }
+      return true;
+    }
+
+    const player = this.playerAtWorldPoint(x, y);
+
+    if (player) {
+      if (player.playerId === this.profile.playerId) {
+        this.showFloatingText(player.x, player.y, "cannot delete self", "#ffd8a8");
+        return true;
+      }
+
+      if (window.confirm(`Delete "${player.name}" from WULAND? This clears the server record.`)) {
+        this.room?.send("deletePlayer", {
+          playerId: player.playerId,
+          code: this.godModeCode
+        });
+      }
+      return true;
+    }
+
+    this.showFloatingText(x, y, "God Mode target?", "#ffd8a8");
+    return true;
   }
 
   private updateClickTarget(player: PlayerNetworkState, time: number): void {
@@ -1140,6 +1266,7 @@ export class WulandScene extends Phaser.Scene {
     this.latestPlayers.clear();
     this.latestEnemies.clear();
     this.latestDroppedItems.clear();
+    this.latestNpcs.clear();
     state.players?.forEach((playerSchema) => {
       const player = snapshotPlayer(playerSchema);
       this.latestPlayers.set(player.playerId, player);
@@ -1158,6 +1285,7 @@ export class WulandScene extends Phaser.Scene {
     const seenPlayers = new Set<string>();
     const seenEnemies = new Set<string>();
     const seenDroppedItems = new Set<string>();
+    const seenNpcs = new Set<string>();
 
     this.latestPlayers.forEach((player) => {
       if (player.mapId !== activeMapId) {
@@ -1187,6 +1315,16 @@ export class WulandScene extends Phaser.Scene {
       seenDroppedItems.add(item.droppedItemId);
       this.renderDroppedItem(item);
     });
+    state.npcs?.forEach((npcSchema) => {
+      const npc = snapshotNpc(npcSchema);
+      this.latestNpcs.set(npc.npcId, npc);
+      if (npc.mapId !== activeMapId) {
+        return;
+      }
+
+      seenNpcs.add(npc.npcId);
+      this.renderNpc(npc);
+    });
 
     for (const [playerId, avatar] of this.avatars) {
       if (!seenPlayers.has(playerId)) {
@@ -1206,6 +1344,13 @@ export class WulandScene extends Phaser.Scene {
       if (!seenDroppedItems.has(droppedItemId)) {
         this.destroyDroppedItemAvatar(avatar);
         this.droppedItemAvatars.delete(droppedItemId);
+      }
+    }
+
+    for (const [npcId, avatar] of this.npcAvatars) {
+      if (!seenNpcs.has(npcId)) {
+        this.destroyNpcAvatar(avatar);
+        this.npcAvatars.delete(npcId);
       }
     }
 
@@ -1231,7 +1376,10 @@ export class WulandScene extends Phaser.Scene {
       activeItemName,
       currentMapId: activeMapId,
       currentMapName: getMapDisplayName(activeMapId),
-      totalDroppedItems: state.totalDroppedItems ?? seenDroppedItems.size
+      totalDroppedItems: state.totalDroppedItems ?? seenDroppedItems.size,
+      godModeAvailable: Boolean(state.godModeEnabled),
+      godModeCodeRequired: Boolean(state.godModeCodeRequired),
+      godModeActive: this.godModeActive
     });
   }
 
@@ -1450,6 +1598,61 @@ export class WulandScene extends Phaser.Scene {
     avatar.nameLabel.setText(definition.displayName);
   }
 
+  private renderNpc(npc: AmbientNpcNetworkState): void {
+    const definition = npcDefinitionFor(npc.npcId);
+    const color = definition?.color ?? npcColor(npc.type);
+    const accentColor = definition?.accentColor ?? 0xfff3bf;
+    let avatar = this.npcAvatars.get(npc.npcId);
+
+    if (!avatar) {
+      const body = this.add.circle(0, 0, 20, color, 0.96).setStrokeStyle(3, 0x162325, 0.8);
+      const accent = this.add.rectangle(0, -7, 30, 10, accentColor, 0.92);
+      const nameLabel = this.add
+        .text(0, -47, npc.displayName, {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "12px",
+          color: "#fff8e7",
+          backgroundColor: "rgba(16, 22, 20, 0.78)",
+          padding: { x: 6, y: 2 }
+        })
+        .setOrigin(0.5);
+      const speechLabel = this.add
+        .text(0, -76, "", {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "12px",
+          color: "#172224",
+          backgroundColor: "#fff8e7",
+          align: "center",
+          padding: { x: 7, y: 4 },
+          wordWrap: { width: 210, useAdvancedWrap: true }
+        })
+        .setOrigin(0.5)
+        .setVisible(false);
+      const container = this.add.container(npc.x, npc.y, [body, accent, nameLabel, speechLabel]);
+      container.setDepth(48);
+      avatar = {
+        npcId: npc.npcId,
+        container,
+        body,
+        accent,
+        nameLabel,
+        speechLabel,
+        target: new Phaser.Math.Vector2(npc.x, npc.y),
+        lastState: npc
+      };
+      this.npcAvatars.set(npc.npcId, avatar);
+    }
+
+    avatar.target.set(npc.x, npc.y);
+    avatar.lastState = npc;
+    avatar.nameLabel.setText(npc.displayName);
+    avatar.body.setFillStyle(color, 0.96);
+    avatar.accent.setFillStyle(accentColor, 0.92);
+    avatar.speechLabel
+      .setText(npc.speechText)
+      .setVisible(Boolean(npc.speechText) && npc.speechUntil > Date.now());
+  }
+
   private updateAvatarPositions(delta: number): void {
     const interpolation = Phaser.Math.Clamp(delta / 85, 0.12, 1);
 
@@ -1469,6 +1672,19 @@ export class WulandScene extends Phaser.Scene {
     this.enemyAvatars.forEach((avatar) => {
       avatar.container.x = Phaser.Math.Linear(avatar.container.x, avatar.target.x, interpolation);
       avatar.container.y = Phaser.Math.Linear(avatar.container.y, avatar.target.y, interpolation);
+    });
+  }
+
+  private updateNpcPositions(delta: number): void {
+    const interpolation = Phaser.Math.Clamp(delta / 110, 0.08, 1);
+
+    this.npcAvatars.forEach((avatar) => {
+      avatar.container.x = Phaser.Math.Linear(avatar.container.x, avatar.target.x, interpolation);
+      avatar.container.y = Phaser.Math.Linear(avatar.container.y, avatar.target.y, interpolation);
+      avatar.speechLabel.setVisible(
+        Boolean(avatar.lastState.speechText) &&
+        avatar.lastState.speechUntil > Date.now()
+      );
     });
   }
 
@@ -1618,6 +1834,48 @@ export class WulandScene extends Phaser.Scene {
     }
   }
 
+  private handleChatMessage(message: ChatMessage): void {
+    this.game.events.emit("wuland:chatMessage", message);
+  }
+
+  private handleSpeechBubble(event: SpeechBubbleEvent): void {
+    if (event.mapId !== this.currentMapId) {
+      return;
+    }
+
+    if (event.sourceType === "player") {
+      const avatar = this.avatars.get(event.sourceId);
+
+      if (avatar) {
+        this.showSpeechBubbleAt(avatar.sprite.x, avatar.sprite.y - 96, event.text);
+      }
+      return;
+    }
+
+    const npc = this.npcAvatars.get(event.sourceId);
+
+    if (npc) {
+      this.showSpeechBubbleAt(npc.container.x, npc.container.y - 70, event.text);
+    }
+  }
+
+  private handleForceDeleted(event: ForceDeletedEvent): void {
+    this.showFloatingText(
+      this.cameras.main.midPoint.x,
+      this.cameras.main.midPoint.y,
+      event.message,
+      "#ff8787"
+    );
+    clearAllSaveData();
+    this.leavingRoom = true;
+    this.deletedByServer = true;
+    this.room = undefined;
+    this.scene.stop("UIScene");
+    this.scene.start("CharacterSelectScene", {
+      message: event.message
+    });
+  }
+
   private showFloatingText(x: number, y: number, text: string, color: string): void {
     if (!text) {
       return;
@@ -1641,6 +1899,31 @@ export class WulandScene extends Phaser.Scene {
       duration: 900,
       ease: "Sine.easeOut",
       onComplete: () => label.destroy()
+    });
+  }
+
+  private showSpeechBubbleAt(x: number, y: number, text: string): void {
+    const bubble = this.add
+      .text(x, y, text.slice(0, CHAT_MAX_MESSAGE_LENGTH), {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "13px",
+        color: "#172224",
+        backgroundColor: "#fff8e7",
+        align: "center",
+        padding: { x: 8, y: 5 },
+        wordWrap: { width: 230, useAdvancedWrap: true }
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(120);
+
+    this.tweens.add({
+      targets: bubble,
+      y: bubble.y - 18,
+      alpha: 0,
+      delay: 2600,
+      duration: 650,
+      ease: "Sine.easeIn",
+      onComplete: () => bubble.destroy()
     });
   }
 
@@ -1722,6 +2005,46 @@ export class WulandScene extends Phaser.Scene {
     return best;
   }
 
+  private droppedItemAtWorldPoint(x: number, y: number): DroppedItemNetworkState | null {
+    let best: DroppedItemNetworkState | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    this.latestDroppedItems.forEach((item) => {
+      if (item.mapId !== this.currentMapId) {
+        return;
+      }
+
+      const distanceToItem = Phaser.Math.Distance.Between(x, y, item.x, item.y);
+
+      if (distanceToItem <= 32 && distanceToItem < bestDistance) {
+        best = item;
+        bestDistance = distanceToItem;
+      }
+    });
+
+    return best;
+  }
+
+  private playerAtWorldPoint(x: number, y: number): PlayerNetworkState | null {
+    let best: PlayerNetworkState | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    this.latestPlayers.forEach((player) => {
+      if (player.mapId !== this.currentMapId) {
+        return;
+      }
+
+      const distanceToPlayer = Phaser.Math.Distance.Between(x, y, player.x, player.y);
+
+      if (distanceToPlayer <= 38 && distanceToPlayer < bestDistance) {
+        best = player;
+        bestDistance = distanceToPlayer;
+      }
+    });
+
+    return best;
+  }
+
   private refreshEnemySelection(): void {
     this.enemyAvatars.forEach((avatar) => {
       avatar.selectionRing.setVisible(
@@ -1795,15 +2118,21 @@ export class WulandScene extends Phaser.Scene {
 
   private handleShutdown(): void {
     this.sceneActive = false;
-    this.saveCurrentProgress();
+    if (!this.deletedByServer) {
+      this.saveCurrentProgress();
+    }
     this.sendMovementInput(ZERO_INPUT, true);
     this.clearClickTarget(true);
-    this.leaveRoom();
+    if (!this.deletedByServer) {
+      this.leaveRoom();
+    }
     this.game.events.off("wuland:editCharacter", this.openCharacterSelect, this);
     this.game.events.off("wuland:selectHotbarSlot", this.selectHotbarSlot, this);
     this.game.events.off("wuland:moveHotbarItem", this.moveHotbarItem, this);
     this.game.events.off("wuland:discardHotbarItem", this.discardHotbarItem, this);
     this.game.events.off("wuland:buyMerchantItem", this.buyMerchantItem, this);
+    this.game.events.off("wuland:sendChat", this.sendChatMessage, this);
+    this.game.events.off("wuland:setGodMode", this.setGodMode, this);
     window.removeEventListener("blur", this.handleWindowBlur);
     this.input.off("pointerdown", this.handlePointerDown, this);
     this.mobileRoot?.remove();
@@ -1815,12 +2144,15 @@ export class WulandScene extends Phaser.Scene {
     this.avatars.forEach((avatar) => this.destroyAvatar(avatar));
     this.enemyAvatars.forEach((avatar) => this.destroyEnemyAvatar(avatar));
     this.droppedItemAvatars.forEach((avatar) => this.destroyDroppedItemAvatar(avatar));
+    this.npcAvatars.forEach((avatar) => this.destroyNpcAvatar(avatar));
     this.avatars.clear();
     this.enemyAvatars.clear();
     this.droppedItemAvatars.clear();
+    this.npcAvatars.clear();
     this.latestPlayers.clear();
     this.latestEnemies.clear();
     this.latestDroppedItems.clear();
+    this.latestNpcs.clear();
 
     if (this.scene.isActive("UIScene")) {
       this.scene.stop("UIScene");
@@ -1855,6 +2187,10 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private destroyDroppedItemAvatar(avatar: DroppedItemAvatar): void {
+    avatar.container.destroy(true);
+  }
+
+  private destroyNpcAvatar(avatar: NpcAvatar): void {
     avatar.container.destroy(true);
   }
 
@@ -1940,6 +2276,22 @@ const snapshotDroppedItem = (item: DroppedItemNetworkState): DroppedItemNetworkS
   y: item.y,
   droppedByPlayerId: item.droppedByPlayerId,
   droppedAt: item.droppedAt
+});
+
+const snapshotNpc = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => ({
+  npcId: npc.npcId,
+  type: npc.type,
+  displayName: npc.displayName,
+  mapId: npc.mapId ?? WULAND_MAP_ID,
+  x: npc.x,
+  y: npc.y,
+  spawnX: npc.spawnX,
+  spawnY: npc.spawnY,
+  wanderRadius: npc.wanderRadius,
+  direction: npc.direction,
+  moving: npc.moving,
+  speechText: npc.speechText,
+  speechUntil: npc.speechUntil
 });
 
 const createEmptyClientInventory = (): InventorySlotState[] =>
@@ -2103,6 +2455,25 @@ const interiorPaletteForMap = (
   return { floor: 0x637a55, wall: 0x33432f, accent: 0xd8f5a2 };
 };
 
+const npcDefinitionFor = (npcId: string) =>
+  WULAND_AMBIENT_NPCS.find((npc) => npc.npcId === npcId);
+
+const npcColor = (type: AmbientNpcNetworkState["type"]): number => {
+  if (type === "cleaning-lady") {
+    return 0x5f7f8f;
+  }
+
+  if (type === "security-guard") {
+    return 0x253449;
+  }
+
+  if (type === "hr-specialist") {
+    return 0x8b5cf6;
+  }
+
+  return 0x2f9e44;
+};
+
 const distanceBetween = (
   a: { x: number; y: number },
   b: { x: number; y: number }
@@ -2111,3 +2482,16 @@ const distanceBetween = (
 
 const parseCssColor = (color: string): number =>
   Number.parseInt(color.replace("#", ""), 16);
+
+const isGameplayInputBlocked = (): boolean => {
+  const active = document.activeElement;
+
+  if (!(active instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    active.matches("input, textarea, select, [contenteditable='true']") ||
+    active.closest("[data-chat-window]") !== null
+  );
+};

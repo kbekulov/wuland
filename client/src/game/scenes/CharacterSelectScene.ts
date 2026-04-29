@@ -37,6 +37,7 @@ import {
 interface CharacterSelectData {
   profile?: PlayerProfile | null;
   progress?: LocalProgress | null;
+  message?: string;
 }
 
 interface CharacterFormState {
@@ -51,6 +52,7 @@ export class CharacterSelectScene extends Phaser.Scene {
   private savedProfile: PlayerProfile | null = null;
   private editMode = true;
   private formState: CharacterFormState = this.createEmptyFormState();
+  private screenMessage = "";
 
   constructor() {
     super("CharacterSelectScene");
@@ -59,6 +61,7 @@ export class CharacterSelectScene extends Phaser.Scene {
   create(data: CharacterSelectData = {}): void {
     this.cameras.main.setBackgroundColor("#123133");
     this.savedProfile = loadPlayerProfile() ?? data.profile ?? null;
+    this.screenMessage = data.message ?? "";
     this.editMode = this.savedProfile === null;
     this.formState = this.createFormState(this.savedProfile);
     this.mount();
@@ -85,6 +88,7 @@ export class CharacterSelectScene extends Phaser.Scene {
     this.bindActionButtons();
     this.setFormDisabled(!this.editMode);
     this.updatePreview();
+    this.updateScreenMessage();
     this.updateValidationStatus();
   }
 
@@ -117,6 +121,7 @@ export class CharacterSelectScene extends Phaser.Scene {
           <p class="eyebrow">WULAND Phase 1</p>
           <h1>Enter WULAND</h1>
           ${savedActions}
+          <p class="form-status character-message" data-screen-message></p>
           <form class="character-form" novalidate>
             <label>
               <span>Name</span>
@@ -368,6 +373,14 @@ export class CharacterSelectScene extends Phaser.Scene {
     }
 
     status.textContent = hasErrors ? errors[0] : "Ready to enter WULAND.";
+  }
+
+  private updateScreenMessage(): void {
+    const message = this.root?.querySelector<HTMLElement>("[data-screen-message]");
+
+    if (message) {
+      message.textContent = this.screenMessage;
+    }
   }
 
   private validationErrors(): string[] {

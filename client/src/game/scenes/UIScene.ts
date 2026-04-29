@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   BUILDING_NAMES,
+  CHAT_MAX_MESSAGE_LENGTH,
   CLASS_METADATA,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
@@ -8,6 +9,7 @@ import {
   WULAND_MERCHANT_STOCK,
   getMapDisplayName,
   isCakeItemDefinitionId,
+  type ChatMessage,
   type InventorySlotState,
   type ItemDefinitionId,
   type LocalProgress,
@@ -55,9 +57,15 @@ export class UIScene extends Phaser.Scene {
     nearbyGiftPlayerName: "",
     currentMapId: WULAND_MAP_ID,
     currentMapName: getMapDisplayName(WULAND_MAP_ID),
-    totalDroppedItems: 0
+    totalDroppedItems: 0,
+    godModeAvailable: false,
+    godModeCodeRequired: false,
+    godModeActive: false
   };
   private hotbarDrag?: { slotIndex: number; startX: number; startY: number; moved: boolean };
+  private chatMessages: ChatMessage[] = [];
+  private chatCollapsed = false;
+  private godModeCode = "";
 
   constructor() {
     super("UIScene");
@@ -75,6 +83,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.on("wuland:toggleHelp", this.toggleHelp, this);
     this.game.events.on("wuland:toggleDebug", this.toggleDebug, this);
     this.game.events.on("wuland:openMerchantShop", this.openMerchantShop, this);
+    this.game.events.on("wuland:chatMessage", this.handleChatMessage, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
   }
 
@@ -96,6 +105,7 @@ export class UIScene extends Phaser.Scene {
           </div>
           <div class="hud-actions">
             <button type="button" class="secondary icon-button" data-action="help">Help</button>
+            <button type="button" class="secondary icon-button god-button" data-action="god-mode">God Mode</button>
             <button type="button" class="secondary icon-button" data-action="edit-character">Edit</button>
           </div>
         </div>
@@ -143,13 +153,26 @@ export class UIScene extends Phaser.Scene {
       <section class="hotbar-panel" data-hotbar-panel aria-label="Inventory hotbar">
         <div class="hotbar-slots" data-hotbar-slots></div>
       </section>
+      <section class="chat-window" data-chat-window>
+        <header>
+          <strong>Chat</strong>
+          <button type="button" class="secondary small" data-action="toggle-chat">Min</button>
+        </header>
+        <div class="chat-messages" data-chat-messages></div>
+        <form class="chat-form" data-chat-form>
+          <input data-chat-input maxlength="${CHAT_MAX_MESSAGE_LENGTH}" autocomplete="off" placeholder="Enter to chat" />
+          <button type="submit" class="primary small">Send</button>
+        </form>
+      </section>
       <section class="help-overlay" data-help-overlay>
         <div>
           <button type="button" class="secondary small" data-action="close-help">Close</button>
           <h2>Controls</h2>
           <p>WASD / arrows move. Click or tap the map to move there. Click or tap an enemy to select it.</p>
-          <p>1-9 selects a hotbar slot. Space attacks with the selected weapon. E uses a selected consumable. F picks up nearby drops or opens the shop near the merchant. G gifts selected cakes to nearby players.</p>
+          <p>1-9 selects a hotbar slot. Space attacks with the selected weapon. E uses a selected consumable. F uses doors, picks up nearby drops, or opens the shop near the merchant. G gifts selected cakes to nearby players.</p>
+          <p>Enter focuses chat. Enter again sends. Escape leaves chat input.</p>
           <p>Drag hotbar items to swap slots. Drag outside the hotbar to drop an item on the map. Sleeping players stay visible but do not fight.</p>
+          <p>God Mode is a prototype admin tool: when active, click a dropped item to delete it or another player to delete that character.</p>
         </div>
       </section>
       <section class="merchant-shop" data-merchant-shop>
@@ -177,8 +200,20 @@ export class UIScene extends Phaser.Scene {
       .querySelector('[data-action="help"]')
       ?.addEventListener("click", () => this.toggleHelp());
     this.root
+      .querySelector('[data-action="god-mode"]')
+      ?.addEventListener("click", () => this.toggleGodMode());
+    this.root
       .querySelector('[data-action="close-help"]')
       ?.addEventListener("click", () => this.toggleHelp(false));
+    this.root
+      .querySelector('[data-action="toggle-chat"]')
+      ?.addEventListener("click", () => this.toggleChat());
+    this.root
+      .querySelector<HTMLFormElement>("[data-chat-form]")
+      ?.addEventListener("submit", (event) => this.handleChatSubmit(event));
+    this.root
+      .querySelector<HTMLInputElement>("[data-chat-input]")
+      ?.addEventListener("keydown", (event) => this.handleChatInputKeydown(event));
     this.root
       .querySelector('[data-action="close-shop"]')
       ?.addEventListener("click", () => this.openMerchantShop(false));
@@ -190,6 +225,7 @@ export class UIScene extends Phaser.Scene {
       ?.addEventListener("pointerdown", (event) => this.handleHotbarPointerDown(event as PointerEvent));
     window.addEventListener("pointermove", this.handleHotbarPointerMove);
     window.addEventListener("pointerup", this.handleHotbarPointerUp);
+    window.addEventListener("keydown", this.handleWindowKeydown, true);
   }
 
   private render(): void {
@@ -230,8 +266,13 @@ export class UIScene extends Phaser.Scene {
     this.root.dataset.helpOpen = String(this.helpOpen);
     this.root.dataset.debugOpen = String(this.debugOpen);
     this.root.dataset.shopOpen = String(this.shopOpen);
+    this.root.dataset.chatCollapsed = String(this.chatCollapsed);
+    this.root.dataset.godModeActive = String(this.connection.godModeActive);
+    this.setGodModeButton();
+    this.setChatButton();
     this.renderHotbar();
     this.renderMerchantStock();
+    this.renderChatMessages();
 
     if (buildingList) {
       buildingList.innerHTML = BUILDING_NAMES.map((building) => {
@@ -266,6 +307,112 @@ export class UIScene extends Phaser.Scene {
     this.shopOpen = force;
     this.render();
   }
+
+  private toggleChat(force?: boolean): void {
+    this.chatCollapsed = force ?? !this.chatCollapsed;
+    this.render();
+  }
+
+  private toggleGodMode(): void {
+    if (!this.connection.godModeAvailable) {
+      return;
+    }
+
+    const nextActive = !this.connection.godModeActive;
+
+    if (nextActive && this.connection.godModeCodeRequired && !this.godModeCode) {
+      const code = window.prompt("Enter God Mode code");
+
+      if (!code) {
+        return;
+      }
+
+      this.godModeCode = code;
+    }
+
+    this.game.events.emit("wuland:setGodMode", {
+      active: nextActive,
+      code: this.godModeCode
+    });
+  }
+
+  private setGodModeButton(): void {
+    const button = this.root?.querySelector<HTMLButtonElement>('[data-action="god-mode"]');
+
+    if (!button) {
+      return;
+    }
+
+    button.disabled = !this.connection.godModeAvailable;
+    button.textContent = this.connection.godModeActive ? "God: On" : "God Mode";
+    button.title = this.connection.godModeActive
+      ? "God Mode: click a dropped item to delete it, or another player to delete their account."
+      : "Prototype admin cleanup tool.";
+  }
+
+  private setChatButton(): void {
+    const button = this.root?.querySelector<HTMLButtonElement>('[data-action="toggle-chat"]');
+
+    if (button) {
+      button.textContent = this.chatCollapsed ? "Open" : "Min";
+    }
+  }
+
+  private handleChatMessage(message: ChatMessage): void {
+    this.chatMessages = [...this.chatMessages, message].slice(-50);
+    this.render();
+  }
+
+  private handleChatSubmit(event: Event): void {
+    event.preventDefault();
+    const input = this.root?.querySelector<HTMLInputElement>("[data-chat-input]");
+    const text = input?.value.trim() ?? "";
+
+    if (!input || text.length === 0) {
+      return;
+    }
+
+    this.game.events.emit("wuland:sendChat", {
+      text: text.slice(0, CHAT_MAX_MESSAGE_LENGTH)
+    });
+    input.value = "";
+  }
+
+  private handleChatInputKeydown(event: KeyboardEvent): void {
+    event.stopPropagation();
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.root?.querySelector<HTMLInputElement>("[data-chat-input]")?.blur();
+    }
+  }
+
+  private readonly handleWindowKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== "Enter" && event.key !== "Escape") {
+      return;
+    }
+
+    const input = this.root?.querySelector<HTMLInputElement>("[data-chat-input]");
+
+    if (!input) {
+      return;
+    }
+
+    if (event.key === "Escape" && document.activeElement === input) {
+      event.preventDefault();
+      event.stopPropagation();
+      input.blur();
+      return;
+    }
+
+    if (event.key === "Enter" && document.activeElement !== input) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.chatCollapsed = false;
+      this.render();
+      input.focus();
+    }
+  };
 
   private interactionHint(): string {
     const hints: string[] = [];
@@ -362,6 +509,28 @@ export class UIScene extends Phaser.Scene {
     }).join("");
   }
 
+  private renderChatMessages(): void {
+    const list = this.root?.querySelector("[data-chat-messages]");
+
+    if (!list) {
+      return;
+    }
+
+    list.innerHTML = this.chatMessages.map((message) => {
+      const mapName = message.mapId === this.connection.currentMapId
+        ? ""
+        : `<span class="chat-map">[${escapeHtml(getMapDisplayName(message.mapId))}]</span>`;
+      return `
+        <p>
+          ${mapName}
+          <strong>${escapeHtml(message.playerName)}</strong>
+          <span>${escapeHtml(message.text)}</span>
+        </p>
+      `;
+    }).join("");
+    list.scrollTop = list.scrollHeight;
+  }
+
   private handleShopClick(event: Event): void {
     const target = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-buy-item]");
     const itemDefinitionId = target?.dataset.buyItem as ItemDefinitionId | undefined;
@@ -445,8 +614,10 @@ export class UIScene extends Phaser.Scene {
     this.game.events.off("wuland:toggleHelp", this.toggleHelp, this);
     this.game.events.off("wuland:toggleDebug", this.toggleDebug, this);
     this.game.events.off("wuland:openMerchantShop", this.openMerchantShop, this);
+    this.game.events.off("wuland:chatMessage", this.handleChatMessage, this);
     window.removeEventListener("pointermove", this.handleHotbarPointerMove);
     window.removeEventListener("pointerup", this.handleHotbarPointerUp);
+    window.removeEventListener("keydown", this.handleWindowKeydown, true);
     this.root?.remove();
     this.root = undefined;
   }
@@ -474,5 +645,11 @@ const escapeAttribute = (value: string): string =>
   value
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");

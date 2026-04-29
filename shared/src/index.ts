@@ -618,7 +618,11 @@ export type CombatEventType =
   | "mark"
   | "enemy-defeated"
   | "player-defeated"
+  | "delete"
   | "respawn";
+
+export const CHAT_MAX_MESSAGE_LENGTH = 140;
+export const CHAT_COOLDOWN_MS = 1000;
 
 export const PLAYER_MAX_HP = 120;
 export const PLAYER_RESPAWN_MS = 4200;
@@ -994,6 +998,175 @@ export const WULAND_MERCHANT_STOCK: MerchantStockItem[] = [
   { itemDefinitionId: "mystery-cake", priceLabel: "free for prototype" }
 ] as const;
 
+export const AMBIENT_NPC_TYPES = [
+  "cleaning-lady",
+  "security-guard",
+  "hr-specialist",
+  "intern",
+  "office-manager",
+  "lost-client"
+] as const;
+
+export type AmbientNpcType = (typeof AMBIENT_NPC_TYPES)[number];
+
+export interface AmbientNpcDefinition {
+  npcId: string;
+  type: AmbientNpcType;
+  displayName: string;
+  mapId: WulandMapId;
+  x: number;
+  y: number;
+  wanderRadius: number;
+  speed: number;
+  color: number;
+  accentColor: number;
+  speechLines: string[];
+}
+
+export interface AmbientNpcNetworkState {
+  npcId: string;
+  type: AmbientNpcType;
+  displayName: string;
+  mapId: WulandMapId;
+  x: number;
+  y: number;
+  spawnX: number;
+  spawnY: number;
+  wanderRadius: number;
+  direction: Direction;
+  moving: boolean;
+  speechText: string;
+  speechUntil: number;
+}
+
+export const WULAND_AMBIENT_NPCS: AmbientNpcDefinition[] = [
+  {
+    npcId: "security-overworld",
+    type: "security-guard",
+    displayName: "Security Guard",
+    mapId: "overworld",
+    x: 725,
+    y: 475,
+    wanderRadius: 120,
+    speed: 45,
+    color: 0x253449,
+    accentColor: 0x74c0fc,
+    speechLines: [
+      "Badge, please. Or at least look confident.",
+      "I saw nothing. I report everything.",
+      "No incidents today. That is not a challenge.",
+      "The bathroom is suspiciously busy."
+    ]
+  },
+  {
+    npcId: "security-rpa-coe",
+    type: "security-guard",
+    displayName: "Security Guard",
+    mapId: "rpa_coe",
+    x: 480,
+    y: 520,
+    wanderRadius: 92,
+    speed: 42,
+    color: 0x253449,
+    accentColor: 0x74c0fc,
+    speechLines: [
+      "Badge, please. Or at least look confident.",
+      "I saw nothing. I report everything.",
+      "No incidents today. That is not a challenge.",
+      "The bathroom is suspiciously busy."
+    ]
+  },
+  {
+    npcId: "cleaning-bathroom",
+    type: "cleaning-lady",
+    displayName: "Cleaning Lady",
+    mapId: "bathroom",
+    x: 230,
+    y: 430,
+    wanderRadius: 120,
+    speed: 38,
+    color: 0x5f7f8f,
+    accentColor: 0xe9fbff,
+    speechLines: [
+      "I just cleaned that tile.",
+      "Someone dropped a rock in the hallway again.",
+      "These bots leave more mess than people.",
+      "No running near wet floors."
+    ]
+  },
+  {
+    npcId: "cleaning-kitchen",
+    type: "cleaning-lady",
+    displayName: "Cleaning Lady",
+    mapId: "kitchen",
+    x: 210,
+    y: 470,
+    wanderRadius: 125,
+    speed: 38,
+    color: 0x5f7f8f,
+    accentColor: 0xe9fbff,
+    speechLines: [
+      "I just cleaned that tile.",
+      "Someone dropped a rock in the hallway again.",
+      "These bots leave more mess than people.",
+      "No running near wet floors."
+    ]
+  },
+  {
+    npcId: "hr-busybeet",
+    type: "hr-specialist",
+    displayName: "HR Specialist",
+    mapId: "busybeet",
+    x: 520,
+    y: 292,
+    wanderRadius: 130,
+    speed: 36,
+    color: 0x8b5cf6,
+    accentColor: 0xfef3c7,
+    speechLines: [
+      "Remember to communicate respectfully.",
+      "Conflict is natural. Documentation is forever.",
+      "Have you considered a feedback session?",
+      "Morale is a resource. Please stop spending it all at once."
+    ]
+  },
+  {
+    npcId: "hr-din-break",
+    type: "hr-specialist",
+    displayName: "HR Specialist",
+    mapId: "din_break",
+    x: 420,
+    y: 488,
+    wanderRadius: 120,
+    speed: 36,
+    color: 0x8b5cf6,
+    accentColor: 0xfef3c7,
+    speechLines: [
+      "Remember to communicate respectfully.",
+      "Conflict is natural. Documentation is forever.",
+      "Have you considered a feedback session?",
+      "Morale is a resource. Please stop spending it all at once."
+    ]
+  },
+  {
+    npcId: "intern-overworld",
+    type: "intern",
+    displayName: "Intern",
+    mapId: "overworld",
+    x: 905,
+    y: 780,
+    wanderRadius: 145,
+    speed: 48,
+    color: 0x2f9e44,
+    accentColor: 0xd3f9d8,
+    speechLines: [
+      "Is this where the deployment happens?",
+      "I brought notes. I lost the notes.",
+      "Everything is a learning opportunity, right?"
+    ]
+  }
+] as const;
+
 export interface InventorySlotState {
   slotIndex: number;
   itemDefinitionId: ItemDefinitionId | "";
@@ -1040,6 +1213,43 @@ export interface GiftItemRequest {
 
 export interface PortalTransitionRequest {
   portalId?: string;
+}
+
+export interface ChatRequest {
+  text: string;
+}
+
+export interface ChatMessage {
+  messageId: string;
+  playerId: string;
+  playerName: string;
+  mapId: WulandMapId;
+  text: string;
+  sentAt: string;
+}
+
+export interface SpeechBubbleEvent {
+  id: string;
+  sourceType: "player" | "npc";
+  sourceId: string;
+  mapId: WulandMapId;
+  text: string;
+  sentAt: string;
+}
+
+export interface DeleteDroppedItemRequest {
+  droppedItemId: string;
+  code?: string;
+}
+
+export interface DeletePlayerRequest {
+  playerId: string;
+  code?: string;
+}
+
+export interface ForceDeletedEvent {
+  playerId: string;
+  message: string;
 }
 
 export interface PlayerNetworkState {
@@ -1158,6 +1368,9 @@ export const isMapId = (value: unknown): value is WulandMapId =>
 
 export const normalizeMapId = (value: unknown): WulandMapId =>
   isMapId(value) ? value : WULAND_MAP_ID;
+
+export const isAmbientNpcType = (value: unknown): value is AmbientNpcType =>
+  isOneOf(AMBIENT_NPC_TYPES, value);
 
 export const isEnemyType = (value: unknown): value is EnemyType =>
   isOneOf(
@@ -1301,6 +1514,21 @@ export const isPortalTransitionRequest = (value: unknown): value is PortalTransi
   (isRecord(value) &&
     (value.portalId === undefined || typeof value.portalId === "string"));
 
+export const isChatRequest = (value: unknown): value is ChatRequest =>
+  isRecord(value) &&
+  typeof value.text === "string" &&
+  value.text.length <= CHAT_MAX_MESSAGE_LENGTH * 4;
+
+export const isDeleteDroppedItemRequest = (value: unknown): value is DeleteDroppedItemRequest =>
+  isRecord(value) &&
+  isNonEmptyString(value.droppedItemId) &&
+  (value.code === undefined || typeof value.code === "string");
+
+export const isDeletePlayerRequest = (value: unknown): value is DeletePlayerRequest =>
+  isRecord(value) &&
+  isNonEmptyString(value.playerId) &&
+  (value.code === undefined || typeof value.code === "string");
+
 export const isDroppedItemNetworkState = (value: unknown): value is DroppedItemNetworkState =>
   isRecord(value) &&
   isNonEmptyString(value.droppedItemId) &&
@@ -1312,6 +1540,22 @@ export const isDroppedItemNetworkState = (value: unknown): value is DroppedItemN
   isValidMapPosition({ x: value.x, y: value.y }, normalizeMapId(value.mapId)) &&
   typeof value.droppedByPlayerId === "string" &&
   isNonEmptyString(value.droppedAt);
+
+export const isAmbientNpcNetworkState = (value: unknown): value is AmbientNpcNetworkState =>
+  isRecord(value) &&
+  isNonEmptyString(value.npcId) &&
+  isAmbientNpcType(value.type) &&
+  isNonEmptyString(value.displayName) &&
+  isMapId(value.mapId) &&
+  isValidMapPosition({ x: value.x, y: value.y }, value.mapId) &&
+  isFiniteNumber(value.spawnX) &&
+  isFiniteNumber(value.spawnY) &&
+  isFiniteNumber(value.wanderRadius) &&
+  value.wanderRadius >= 0 &&
+  isDirection(value.direction) &&
+  typeof value.moving === "boolean" &&
+  typeof value.speechText === "string" &&
+  isFiniteNumber(value.speechUntil);
 
 export const isMovementInput = (value: unknown): value is MovementInput => {
   if (!isRecord(value)) {

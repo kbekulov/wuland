@@ -383,12 +383,16 @@ export class WulandScene extends Phaser.Scene {
       });
       room.onStateChange((state) => this.handleRoomState(state));
       room.onMessage("combatEvent", (event: CombatEvent) => this.handleCombatEvent(event));
+      room.onMessage("chatHistory", (messages: ChatMessage[]) => this.handleChatHistory(messages));
       room.onMessage("chatMessage", (message: ChatMessage) => this.handleChatMessage(message));
       room.onMessage("speechBubble", (event: SpeechBubbleEvent) => this.handleSpeechBubble(event));
       room.onMessage("forceDeleted", (event: ForceDeletedEvent) => this.handleForceDeleted(event));
       room.onLeave((code, reason) => this.handleRoomLeave(code, reason));
       room.onError((code, message) => this.handleRoomError(code, message));
       this.handleRoomState(room.state);
+      if (this.connectionState.serverProtocolOk) {
+        room.send("requestChatHistory");
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not connect to WULAND server";
 
@@ -1942,6 +1946,10 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.emit("wuland:chatMessage", message);
   }
 
+  private handleChatHistory(messages: ChatMessage[]): void {
+    this.game.events.emit("wuland:chatHistory", messages);
+  }
+
   private handleSpeechBubble(event: SpeechBubbleEvent): void {
     if (event.mapId !== this.currentMapId) {
       return;
@@ -2598,8 +2606,5 @@ const isGameplayInputBlocked = (): boolean => {
     return false;
   }
 
-  return (
-    active.matches("input, textarea, select, [contenteditable='true']") ||
-    active.closest("[data-chat-window]") !== null
-  );
+  return active.matches("input, textarea, select, [contenteditable='true']");
 };

@@ -404,6 +404,10 @@ export class WulandRoom extends Room<WulandRoomState> {
       this.handleChat(playerId, message.text);
     });
 
+    this.onMessage("requestChatHistory", (client) => {
+      client.send("chatHistory", this.playerStore.allChatMessages());
+    });
+
     this.onMessage("deleteDroppedItem", (client, message: unknown) => {
       const playerId = this.sessionToPlayerId.get(client.sessionId);
 
@@ -509,6 +513,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.moveTargets.delete(options.profile.playerId);
     this.updateCounts();
     this.persistPlayer(player, true);
+    client.send("chatHistory", this.playerStore.allChatMessages());
   }
 
   onLeave(client: Client): void {
@@ -1438,6 +1443,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       text,
       sentAt: new Date(now).toISOString()
     } satisfies ChatMessage;
+    this.playerStore.appendChatMessage(message);
     this.broadcast("chatMessage", message);
     this.broadcastSpeechBubble({
       sourceType: "player",

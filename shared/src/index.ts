@@ -6,7 +6,8 @@ export const PLAYER_CLASSES = [
   "product owner",
   "senior product owner",
   "architect",
-  "controller"
+  "controller",
+  "data analyst"
 ] as const;
 
 export type PlayerClass = (typeof PLAYER_CLASSES)[number];
@@ -17,6 +18,7 @@ export interface ClassMetadata {
   color: string;
   iconText: string;
   futureRole: string;
+  description?: string;
 }
 
 export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
@@ -75,10 +77,18 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
     color: "#e8590c",
     iconText: "CTL",
     futureRole: "workflow controller"
+  },
+  "data analyst": {
+    displayName: "Data Analyst",
+    shortLabel: "DA",
+    color: "#12b886",
+    iconText: "SIG",
+    futureRole: "insight / metrics specialist",
+    description: "Analyzes data, finds patterns, and turns raw numbers into useful decisions."
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 9;
+export const WULAND_PROTOCOL_VERSION = 10;
 
 export const GENDERS = ["male", "female"] as const;
 export type Gender = (typeof GENDERS)[number];
@@ -633,6 +643,7 @@ export type CombatEventType =
 
 export const CHAT_MAX_MESSAGE_LENGTH = 140;
 export const CHAT_COOLDOWN_MS = 1000;
+export const CHAT_HISTORY_LIMIT = 100;
 
 export const PLAYER_MAX_HP = 120;
 export const PLAYER_RESPAWN_MS = 4200;
@@ -1528,6 +1539,16 @@ export const isChatRequest = (value: unknown): value is ChatRequest =>
   isRecord(value) &&
   typeof value.text === "string" &&
   value.text.length <= CHAT_MAX_MESSAGE_LENGTH * 4;
+
+export const isChatMessage = (value: unknown): value is ChatMessage =>
+  isRecord(value) &&
+  isNonEmptyString(value.messageId) &&
+  isNonEmptyString(value.playerId) &&
+  isNonEmptyString(value.playerName) &&
+  isMapId(value.mapId) &&
+  typeof value.text === "string" &&
+  value.text.length <= CHAT_MAX_MESSAGE_LENGTH &&
+  isNonEmptyString(value.sentAt);
 
 export const isDeleteDroppedItemRequest = (value: unknown): value is DeleteDroppedItemRequest =>
   isRecord(value) &&

@@ -2,12 +2,17 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CHAT_HISTORY_LIMIT,
+  CHAT_MAX_MESSAGE_LENGTH,
+  CLASS_METADATA,
+  DEFAULT_COSMETICS,
   DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
   HOTBAR_SLOT_COUNT,
   PLAYER_MAX_HP,
   WULAND_WORLD,
   clampMapPosition,
   isAmbientNpcNetworkState,
+  isChatMessage,
   isCharacterCosmetics,
   isDroppedItemNetworkState,
   isDirection,
@@ -18,12 +23,13 @@ import {
   normalizeMapId,
   normalizeInventory,
   type AmbientNpcNetworkState,
+  type ChatMessage,
   type Direction,
   type DroppedItemNetworkState,
   type PlayerNetworkState
 } from "@wuland/shared";
 
-const STORE_VERSION = 3;
+const STORE_VERSION = 4;
 const DEFAULT_STORE_PATH = fileURLToPath(
   new URL("../../data/wuland-players.json", import.meta.url)
 );
@@ -35,6 +41,7 @@ interface PlayerStoreFile {
   droppedItems?: DroppedItemNetworkState[];
   npcStates?: AmbientNpcNetworkState[];
   deletedPlayerIds?: string[];
+  chatMessages?: ChatMessage[];
 }
 
 export interface PlayerStoreOptions {
@@ -51,6 +58,7 @@ export class PlayerStore {
   private readonly droppedItems = new Map<string, DroppedItemNetworkState>();
   private readonly npcStates = new Map<string, AmbientNpcNetworkState>();
   private readonly deletedPlayerIds = new Set<string>();
+  private chatMessages: ChatMessage[] = [];
   private saveTimer?: NodeJS.Timeout;
   private loaded = false;
 
@@ -73,9 +81,10 @@ export class PlayerStore {
       this.droppedItems.clear();
       this.npcStates.clear();
       this.deletedPlayerIds.clear();
+      this.chatMessages = [];
       this.loaded = true;
       await this.saveNow();
-      console.log("[WULAND] Stored sleeping players cleared on startup.");
+      console.log("[WULAND] Stored prototype data cleared on startup.");
       return;
     }
 
@@ -83,19 +92,14 @@ export class PlayerStore {
       const raw = await readFile(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as unknown;
 
-      if (isPlayerStoreFile(parsed)) {
-        parsed.players.forEach((player) => {
-          this.players.set(player.playerId, normalizeStoredPlayer(player));
-        });
-        parsed.droppedItems?.forEach((droppedItem) => {
-          this.droppedItems.set(droppedItem.droppedItemId, cloneDroppedItem(droppedItem));
-        });
-        parsed.npcStates?.forEach((npc) => {
-          this.npcStates.set(npc.npcId, cloneNpcState(npc));
-        });
-        parsed.deletedPlayerIds?.forEach((playerId) => {
-          this.deletedPlayerIds.add(playerId);
-        });
+      if (isStoreRecord(parsed)) {
+        this.loadPlayers(parsed.players);
+        this.loadDroppedItems(parsed.droppedItems);
+        this.loadNpcStates(parsed.npcStates);
+        this.loadDeletedPlayerIds(parsed.deletedPlayerIds);
+        this.loadChatMessages(parsed.chatMessages);
+      } else {
+        console.warn("[WULAND] Player store root is malformed. Ignoring stored records.");
       }
     } catch (error) {
       if (!isMissingFileError(error)) {
@@ -198,6 +202,129 @@ export class PlayerStore {
     return this.deletedPlayerIds.has(playerId);
   }
 
+  allChatMessages(): ChatMessage[] {
+    return this.chatMessages.map(cloneChatMessage);
+  }
+
+  appendChatMessage(message: ChatMessage, options: { immediate?: boolean } = {}): void {
+    this.chatMessages = [...this.chatMessages, cloneChatMessage(message)].slice(-CHAT_HISTORY_LIMIT);
+
+    if (options.immediate) {
+      void this.saveNow();
+      return;
+    }
+
+    this.scheduleSave();
+  }
+
+  private loadPlayers(value: unknown): void {
+    if (value === undefined) {
+      return;
+    }
+
+    if (!Array.isArray(value)) {
+      console.warn("[WULAND] Stored players list is malformed. Skipping players.");
+      return;
+    }
+
+    value.forEach((rawPlayer, index) => {
+      const player = isStoredPlayer(rawPlayer)
+        ? rawPlayer
+        : repairStoredPlayer(rawPlayer, index);
+
+      if (!player) {
+        console.warn(`[WULAND] Skipping malformed player record at index ${index}.`);
+        return;
+      }
+
+      this.players.set(player.playerId, normalizeStoredPlayer(player));
+    });
+  }
+
+  private loadDroppedItems(value: unknown): void {
+    if (value === undefined) {
+      return;
+    }
+
+    if (!Array.isArray(value)) {
+      console.warn("[WULAND] Stored dropped item list is malformed. Skipping dropped items.");
+      return;
+    }
+
+    value.forEach((rawItem, index) => {
+      if (!isDroppedItemNetworkState(rawItem)) {
+        console.warn(`[WULAND] Skipping malformed dropped item record at index ${index}.`);
+        return;
+      }
+
+      this.droppedItems.set(rawItem.droppedItemId, cloneDroppedItem(rawItem));
+    });
+  }
+
+  private loadNpcStates(value: unknown): void {
+    if (value === undefined) {
+      return;
+    }
+
+    if (!Array.isArray(value)) {
+      console.warn("[WULAND] Stored NPC list is malformed. Skipping NPC state.");
+      return;
+    }
+
+    value.forEach((rawNpc, index) => {
+      if (!isAmbientNpcNetworkState(rawNpc)) {
+        console.warn(`[WULAND] Skipping malformed NPC record at index ${index}.`);
+        return;
+      }
+
+      this.npcStates.set(rawNpc.npcId, cloneNpcState(rawNpc));
+    });
+  }
+
+  private loadDeletedPlayerIds(value: unknown): void {
+    if (value === undefined) {
+      return;
+    }
+
+    if (!Array.isArray(value)) {
+      console.warn("[WULAND] Stored deleted player list is malformed. Skipping deleted IDs.");
+      return;
+    }
+
+    value.forEach((playerId, index) => {
+      if (typeof playerId !== "string" || playerId.trim().length === 0) {
+        console.warn(`[WULAND] Skipping malformed deleted player ID at index ${index}.`);
+        return;
+      }
+
+      this.deletedPlayerIds.add(playerId);
+    });
+  }
+
+  private loadChatMessages(value: unknown): void {
+    if (value === undefined) {
+      return;
+    }
+
+    if (!Array.isArray(value)) {
+      console.warn("[WULAND] Stored chat history is malformed. Skipping chat history.");
+      return;
+    }
+
+    const messages: ChatMessage[] = [];
+
+    value.forEach((rawMessage, index) => {
+      if (!isChatMessage(rawMessage)) {
+        console.warn(`[WULAND] Skipping malformed chat message at index ${index}.`);
+        return;
+      }
+
+      messages.push(cloneChatMessage(rawMessage));
+    });
+
+    this.chatMessages = messages.slice(-CHAT_HISTORY_LIMIT);
+  }
+
   removeExpiredOfflinePlayers(): number {
     const expiresBefore = Date.now() - this.offlinePlayerTtlHours * 60 * 60 * 1000;
     let removed = 0;
@@ -245,7 +372,8 @@ export class PlayerStore {
       players: [...this.players.values()].map(clonePlayer),
       droppedItems: [...this.droppedItems.values()].map(cloneDroppedItem),
       npcStates: [...this.npcStates.values()].map(cloneNpcState),
-      deletedPlayerIds: [...this.deletedPlayerIds.values()]
+      deletedPlayerIds: [...this.deletedPlayerIds.values()],
+      chatMessages: this.chatMessages.map(cloneChatMessage)
     };
 
     await writeFile(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -260,39 +388,8 @@ export const createPlayerStore = async (
   return store;
 };
 
-const isPlayerStoreFile = (value: unknown): value is PlayerStoreFile => {
-  if (typeof value !== "object" || value === null || !("players" in value)) {
-    return false;
-  }
-
-  const file = value as {
-    players: unknown;
-    droppedItems?: unknown;
-    npcStates?: unknown;
-    deletedPlayerIds?: unknown;
-  };
-  const droppedItems =
-    !("droppedItems" in file) ||
-    file.droppedItems === undefined ||
-    (Array.isArray(file.droppedItems) && file.droppedItems.every(isDroppedItemNetworkState));
-  const npcStates =
-    !("npcStates" in file) ||
-    file.npcStates === undefined ||
-    (Array.isArray(file.npcStates) && file.npcStates.every(isAmbientNpcNetworkState));
-  const deletedPlayerIds =
-    !("deletedPlayerIds" in file) ||
-    file.deletedPlayerIds === undefined ||
-    (Array.isArray(file.deletedPlayerIds) &&
-      file.deletedPlayerIds.every((playerId) => typeof playerId === "string"));
-
-  return (
-    Array.isArray(file.players) &&
-    file.players.every(isStoredPlayer) &&
-    droppedItems &&
-    npcStates &&
-    deletedPlayerIds
-  );
-};
+const isStoreRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isStoredPlayer = (value: unknown): value is PlayerNetworkState => {
   if (typeof value !== "object" || value === null) {
@@ -338,6 +435,84 @@ const isStoredPlayer = (value: unknown): value is PlayerNetworkState => {
     typeof player.lastSeenAt === "string" &&
     typeof player.lastSavedAt === "string"
   );
+};
+
+const repairStoredPlayer = (value: unknown, index: number): PlayerNetworkState | null => {
+  if (!isStoreRecord(value)) {
+    return null;
+  }
+
+  const playerId = typeof value.playerId === "string" ? value.playerId.trim() : "";
+
+  if (!playerId) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  const className = isPlayerClass(value.className) ? value.className : "developer";
+  const gender = isGender(value.gender) ? value.gender : "male";
+  const storedCosmetics = {
+    skinTone: value.skinTone,
+    hairStyle: value.hairStyle,
+    hairColor: value.hairColor,
+    outfitColor: value.outfitColor,
+    accessory: value.accessory,
+    spriteVariant: value.spriteVariant
+  };
+  const cosmetics = isCharacterCosmetics(storedCosmetics)
+    ? storedCosmetics
+    : DEFAULT_COSMETICS;
+  const mapId = isMapId(value.mapId) ? value.mapId : "overworld";
+  const position = clampMapPosition(
+    {
+      x: typeof value.x === "number" && Number.isFinite(value.x) ? value.x : WULAND_WORLD.defaultSpawn.x,
+      y: typeof value.y === "number" && Number.isFinite(value.y) ? value.y : WULAND_WORLD.defaultSpawn.y
+    },
+    mapId
+  );
+
+  console.warn(`[WULAND] Repaired stored player record at index ${index}.`);
+
+  return {
+    playerId,
+    sessionId: "",
+    name: typeof value.name === "string" && value.name.trim() ? value.name.trim().slice(0, 24) : "WULAND Hero",
+    className,
+    gender,
+    skinTone: cosmetics.skinTone,
+    hairStyle: cosmetics.hairStyle,
+    hairColor: cosmetics.hairColor,
+    outfitColor: cosmetics.outfitColor,
+    accessory: cosmetics.accessory,
+    spriteVariant: cosmetics.spriteVariant,
+    mapId,
+    x: position.x,
+    y: position.y,
+    direction: isDirection(value.direction) ? value.direction : "down",
+    moving: false,
+    online: false,
+    sleeping: true,
+    hp: PLAYER_MAX_HP,
+    maxHp: PLAYER_MAX_HP,
+    shield: 0,
+    defeated: false,
+    respawnAt: 0,
+    specialCooldownUntil: 0,
+    activeBuffs: "",
+    markedTargets: "",
+    inventory: normalizeInventory(Array.isArray(value.inventory) ? value.inventory : undefined, playerId),
+    selectedHotbarSlot:
+      typeof value.selectedHotbarSlot === "number" &&
+      Number.isInteger(value.selectedHotbarSlot) &&
+      value.selectedHotbarSlot >= 0 &&
+      value.selectedHotbarSlot < HOTBAR_SLOT_COUNT
+        ? value.selectedHotbarSlot
+        : 0,
+    role: CLASS_METADATA[className].futureRole,
+    joinedAt: typeof value.joinedAt === "string" ? value.joinedAt : now,
+    lastSeenAt: typeof value.lastSeenAt === "string" ? value.lastSeenAt : now,
+    lastSavedAt: typeof value.lastSavedAt === "string" ? value.lastSavedAt : now
+  };
 };
 
 const normalizeStoredPlayer = (player: PlayerNetworkState): PlayerNetworkState => {
@@ -400,6 +575,15 @@ const cloneNpcState = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => {
     speechUntil: Number.isFinite(npc.speechUntil) ? npc.speechUntil : 0
   };
 };
+
+const cloneChatMessage = (message: ChatMessage): ChatMessage => ({
+  messageId: message.messageId,
+  playerId: message.playerId,
+  playerName: message.playerName.slice(0, 32),
+  mapId: normalizeMapId(message.mapId),
+  text: message.text.slice(0, CHAT_MAX_MESSAGE_LENGTH),
+  sentAt: message.sentAt
+});
 
 const clampDroppedItemPosition = (
   item: DroppedItemNetworkState

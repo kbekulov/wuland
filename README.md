@@ -1,6 +1,6 @@
 # WULAND
 
-WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 8 keeps multiplayer movement, sleeping players, multi-map interiors, enemies, server-authoritative combat, shared weapons, inventory, merchant shopping, cakes, and dropped items, then adds ambient NPCs, player chat, speech bubbles, and a prototype God Mode cleanup tool.
+WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 9 keeps multiplayer movement, sleeping players, multi-map interiors, enemies, server-authoritative combat, shared weapons, inventory, merchant shopping, cakes, dropped items, NPCs, chat, and God Mode, then adds persistent server chat history, the Data Analyst class, and safer JSON migrations.
 
 ## Local Development
 
@@ -94,12 +94,12 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
 - `G`: gift the selected cake to a nearby online player.
 - Click or tap an enemy: select it as your weapon target.
 - Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop it on the map.
-- `Enter`: focus chat, then `Enter` again to send. After sending, chat minimizes and character controls resume.
-- `Escape`: leave chat input.
+- `Enter`: focus chat, then `Enter` again to send. After sending, the chat input loses focus and character controls resume.
+- `Escape`: leave chat input without sending.
 
 Combat is intentionally simple prototype combat. The server owns player HP, enemy HP, inventories, selected hotbar slots, dropped items, enemy movement, damage, defeats, and respawns. The browser only sends movement, inventory, pickup, and attack requests.
 
-While typing in chat, gameplay movement and attack keys are ignored.
+While typing in chat, gameplay movement, attack keys, and inventory hotkeys are ignored. Chat only captures keyboard input while its text input is focused.
 
 Class abilities, special skills, special cooldowns, and passive combat traits were replaced by shared weapons so every class has equal combat access.
 
@@ -152,6 +152,8 @@ Ambient NPCs wander slowly around assigned maps, avoid obvious obstacles, and oc
 
 The chat window is visible during gameplay and can be minimized. Chat is global in the chat window, with off-map messages labeled by map name. Speech bubbles only appear above players and NPCs in the same map. Messages are trimmed, capped at 140 characters, and rate-limited to about one message per second.
 
+The server keeps and persists the latest 100 chat messages in JSON storage. Returning players receive recent chat history when they join, and chat history survives server restart if `server/data/wuland-players.json` remains available. The client safely renders chat text as text, not HTML.
+
 The local player sidebar is compact by default on desktop and expands while hovered, keeping Help, God Mode, Edit, player name, class, location, and HP visible in the minimized state.
 
 ## God Mode
@@ -176,6 +178,9 @@ Classes are now identity and flavor only. Class labels, colors, and icons remain
 - Senior Product Owner
 - Architect
 - Controller
+- Data Analyst
+
+Data Analysts are insight / metrics specialists. They analyze data, find patterns, and turn raw numbers into useful decisions. Like every other class, they use the shared weapon and inventory system.
 
 ## Enemies
 
@@ -256,3 +261,5 @@ Phase 6 adds the merchant shop, infinite prototype currency, purchasable weapons
 Phase 7 adds multi-map WULAND, enterable building interiors, server-authoritative portal transitions, map-specific sleeping players, and map-specific dropped items.
 
 Phase 8 adds ambient NPCs, global chat with same-map speech bubbles, and prototype God Mode deletion for players and dropped items.
+
+Phase 9 adds persistent server chat history, the Data Analyst class, and safer JSON persistence migrations that skip or repair malformed records instead of discarding the whole store.

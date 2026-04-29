@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   BUILDING_NAMES,
+  CHAT_HISTORY_LIMIT,
   CHAT_MAX_MESSAGE_LENGTH,
   CLASS_METADATA,
   HOTBAR_SLOT_COUNT,
@@ -85,6 +86,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.on("wuland:toggleHelp", this.toggleHelp, this);
     this.game.events.on("wuland:toggleDebug", this.toggleDebug, this);
     this.game.events.on("wuland:openMerchantShop", this.openMerchantShop, this);
+    this.game.events.on("wuland:chatHistory", this.handleChatHistory, this);
     this.game.events.on("wuland:chatMessage", this.handleChatMessage, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
   }
@@ -364,7 +366,12 @@ export class UIScene extends Phaser.Scene {
   }
 
   private handleChatMessage(message: ChatMessage): void {
-    this.chatMessages = [...this.chatMessages, message].slice(-50);
+    this.chatMessages = mergeChatMessages(this.chatMessages, [message]);
+    this.render();
+  }
+
+  private handleChatHistory(messages: ChatMessage[]): void {
+    this.chatMessages = mergeChatMessages(this.chatMessages, messages);
     this.render();
   }
 
@@ -373,7 +380,12 @@ export class UIScene extends Phaser.Scene {
     const input = this.root?.querySelector<HTMLInputElement>("[data-chat-input]");
     const text = input?.value.trim() ?? "";
 
-    if (!input || text.length === 0) {
+    if (!input) {
+      return;
+    }
+
+    if (text.length === 0) {
+      input.blur();
       return;
     }
 
@@ -382,7 +394,9 @@ export class UIScene extends Phaser.Scene {
     });
     input.value = "";
     input.blur();
-    this.chatCollapsed = true;
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     this.render();
   }
 
@@ -622,6 +636,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.off("wuland:toggleHelp", this.toggleHelp, this);
     this.game.events.off("wuland:toggleDebug", this.toggleDebug, this);
     this.game.events.off("wuland:openMerchantShop", this.openMerchantShop, this);
+    this.game.events.off("wuland:chatHistory", this.handleChatHistory, this);
     this.game.events.off("wuland:chatMessage", this.handleChatMessage, this);
     window.removeEventListener("pointermove", this.handleHotbarPointerMove);
     window.removeEventListener("pointerup", this.handleHotbarPointerUp);
@@ -630,6 +645,21 @@ export class UIScene extends Phaser.Scene {
     this.root = undefined;
   }
 }
+
+const mergeChatMessages = (
+  current: ChatMessage[],
+  incoming: ChatMessage[]
+): ChatMessage[] => {
+  const byId = new Map<string, ChatMessage>();
+
+  [...current, ...incoming].forEach((message) => {
+    byId.set(message.messageId, message);
+  });
+
+  return [...byId.values()]
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt))
+    .slice(-CHAT_HISTORY_LIMIT);
+};
 
 const tooltipActionForItem = (itemDefinitionId: ItemDefinitionId): string => {
   const definition = ITEM_DEFINITIONS[itemDefinitionId];

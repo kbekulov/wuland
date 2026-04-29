@@ -181,9 +181,12 @@ Expected response:
 ```json
 {
   "ok": true,
-  "service": "wuland-server"
+  "service": "wuland-server",
+  "protocolVersion": 9
 }
 ```
+
+If the browser says actions are not registered, the client is newer than the NAS server image. Delete/recreate the Synology project or remove the old `ghcr.io/kbekulov/wuland-server:latest` image and start the project again, then confirm `/health` shows the current `protocolVersion`.
 
 Then test the public tunnel:
 

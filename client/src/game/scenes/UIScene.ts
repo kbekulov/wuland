@@ -60,7 +60,9 @@ export class UIScene extends Phaser.Scene {
     totalDroppedItems: 0,
     godModeAvailable: false,
     godModeCodeRequired: false,
-    godModeActive: false
+    godModeActive: false,
+    serverProtocolVersion: 0,
+    serverProtocolOk: false
   };
   private hotbarDrag?: { slotIndex: number; startX: number; startY: number; moved: boolean };
   private chatMessages: ChatMessage[] = [];
@@ -310,6 +312,9 @@ export class UIScene extends Phaser.Scene {
 
   private toggleChat(force?: boolean): void {
     this.chatCollapsed = force ?? !this.chatCollapsed;
+    if (this.chatCollapsed) {
+      this.root?.querySelector<HTMLInputElement>("[data-chat-input]")?.blur();
+    }
     this.render();
   }
 
@@ -376,6 +381,9 @@ export class UIScene extends Phaser.Scene {
       text: text.slice(0, CHAT_MAX_MESSAGE_LENGTH)
     });
     input.value = "";
+    input.blur();
+    this.chatCollapsed = true;
+    this.render();
   }
 
   private handleChatInputKeydown(event: KeyboardEvent): void {

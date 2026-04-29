@@ -539,6 +539,45 @@ label span,
   color: #fff8e7;
   padding: 14px;
   pointer-events: auto;
+  transition:
+    width 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hud-card:not(:hover):not(:focus-within) {
+    width: min(286px, calc(100vw - 28px));
+    background: rgba(14, 29, 30, 0.78);
+  }
+
+  .hud-card:not(:hover):not(:focus-within) .hud-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .hud-card:not(:hover):not(:focus-within) .hud-actions {
+    justify-content: stretch;
+  }
+
+  .hud-card:not(:hover):not(:focus-within) .hud-actions button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 7px;
+  }
+
+  .hud-card:not(:hover):not(:focus-within) .hud-hint,
+  .hud-card:not(:hover):not(:focus-within) .hud-active-item,
+  .hud-card:not(:hover):not(:focus-within) .hud-network,
+  .hud-card:not(:hover):not(:focus-within) .hud-counts,
+  .hud-card:not(:hover):not(:focus-within) .hud-section,
+  .hud-card:not(:hover):not(:focus-within) .hud-debug {
+    display: none;
+  }
+
+  .wuland-hud[data-connection-status="error"] .hud-card:not(:hover):not(:focus-within) .hud-network {
+    display: flex;
+  }
 }
 
 .hud-header {

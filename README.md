@@ -94,7 +94,7 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
 - `G`: gift the selected cake to a nearby online player.
 - Click or tap an enemy: select it as your weapon target.
 - Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop it on the map.
-- `Enter`: focus chat, then `Enter` again to send.
+- `Enter`: focus chat, then `Enter` again to send. After sending, chat minimizes and character controls resume.
 - `Escape`: leave chat input.
 
 Combat is intentionally simple prototype combat. The server owns player HP, enemy HP, inventories, selected hotbar slots, dropped items, enemy movement, damage, defeats, and respawns. The browser only sends movement, inventory, pickup, and attack requests.
@@ -117,7 +117,7 @@ Weapons:
 
 ## Merchant and Cakes
 
-The mysterious Odd Cart Merchant stands near the main WULAND village path around the center-left of town. Stand near the cart and press `F` to open the shop. On mobile, use the Interact button.
+The mysterious Odd Merchant stands near the main WULAND village path around the center-left of town. Stand near the merchant and press `F` to open the shop. On mobile, use the Interact button.
 
 Currency is infinite in this prototype. The shop still shows prices as flavor, but buying does not spend money.
 
@@ -152,6 +152,8 @@ Ambient NPCs wander slowly around assigned maps, avoid obvious obstacles, and oc
 
 The chat window is visible during gameplay and can be minimized. Chat is global in the chat window, with off-map messages labeled by map name. Speech bubbles only appear above players and NPCs in the same map. Messages are trimmed, capped at 140 characters, and rate-limited to about one message per second.
 
+The local player sidebar is compact by default on desktop and expands while hovered, keeping Help, God Mode, Edit, player name, class, location, and HP visible in the minimized state.
+
 ## God Mode
 
 God Mode is a prototype/admin cleanup tool, not production security.
@@ -173,6 +175,7 @@ Classes are now identity and flavor only. Class labels, colors, and icons remain
 - Product Owner
 - Senior Product Owner
 - Architect
+- Controller
 
 ## Enemies
 

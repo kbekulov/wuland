@@ -37,6 +37,7 @@ export interface WulandNpcsMap {
 }
 
 export interface WulandRoomState {
+  serverProtocolVersion?: number;
   players: WulandPlayersMap;
   enemies: WulandEnemiesMap;
   droppedItems: WulandDroppedItemsMap;

@@ -5,7 +5,8 @@ export const PLAYER_CLASSES = [
   "senior business analyst",
   "product owner",
   "senior product owner",
-  "architect"
+  "architect",
+  "controller"
 ] as const;
 
 export type PlayerClass = (typeof PLAYER_CLASSES)[number];
@@ -67,8 +68,17 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
     color: "#2f3338",
     iconText: "BLU",
     futureRole: "system mage / engineer"
+  },
+  controller: {
+    displayName: "Controller",
+    shortLabel: "CTRL",
+    color: "#e8590c",
+    iconText: "CTL",
+    futureRole: "workflow controller"
   }
 };
+
+export const WULAND_PROTOCOL_VERSION = 9;
 
 export const GENDERS = ["male", "female"] as const;
 export type Gender = (typeof GENDERS)[number];

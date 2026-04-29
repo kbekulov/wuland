@@ -17,6 +17,7 @@ import {
   WULAND_MAP_ID,
   WULAND_MERCHANT,
   WULAND_MERCHANT_STOCK,
+  WULAND_PROTOCOL_VERSION,
   WULAND_WORLD,
   applyServerMovement,
   applyServerVectorMovement,
@@ -189,6 +190,7 @@ export class WulandNpcSchema extends Schema {
 }
 
 export class WulandRoomState extends Schema {
+  @type("number") serverProtocolVersion = WULAND_PROTOCOL_VERSION;
   @type({ map: WulandPlayerSchema }) players = new MapSchema<WulandPlayerSchema>();
   @type({ map: WulandEnemySchema }) enemies = new MapSchema<WulandEnemySchema>();
   @type({ map: WulandDroppedItemSchema }) droppedItems = new MapSchema<WulandDroppedItemSchema>();

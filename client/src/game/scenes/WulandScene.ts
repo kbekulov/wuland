@@ -3,6 +3,7 @@ import {
   BUILDING_NAMES,
   CHAT_MAX_MESSAGE_LENGTH,
   CLASS_METADATA,
+  DEFAULT_COSMETICS,
   ENEMY_DEFINITIONS,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
@@ -12,6 +13,7 @@ import {
   WULAND_MAPS,
   WULAND_WORLD,
   WULAND_MERCHANT,
+  WULAND_PROTOCOL_VERSION,
   clampMapPosition,
   collidesWithMap,
   getMapDefinition,
@@ -151,6 +153,8 @@ export interface WulandConnectionState {
   godModeAvailable: boolean;
   godModeCodeRequired: boolean;
   godModeActive: boolean;
+  serverProtocolVersion: number;
+  serverProtocolOk: boolean;
 }
 
 const ZERO_INPUT: MovementInput = {
@@ -207,7 +211,9 @@ export class WulandScene extends Phaser.Scene {
     totalDroppedItems: 0,
     godModeAvailable: false,
     godModeCodeRequired: false,
-    godModeActive: false
+    godModeActive: false,
+    serverProtocolVersion: 0,
+    serverProtocolOk: false
   };
   private godModeActive = false;
   private godModeCode = "";
@@ -293,7 +299,9 @@ export class WulandScene extends Phaser.Scene {
       totalDroppedItems: 0,
       godModeAvailable: false,
       godModeCodeRequired: false,
-      godModeActive: false
+      godModeActive: false,
+      serverProtocolVersion: 0,
+      serverProtocolOk: false
     };
 
     this.drawCurrentMap(this.currentMapId);
@@ -567,27 +575,47 @@ export class WulandScene extends Phaser.Scene {
 
   private drawMerchant(): void {
     const { x, y } = WULAND_MERCHANT;
+    const merchantTexture = createCharacterTexture(this, {
+      playerId: "wuland-traveling-merchant",
+      class: "controller",
+      gender: "male",
+      cosmetics: {
+        ...DEFAULT_COSMETICS,
+        skinTone: "cool umber",
+        hairStyle: "spiky",
+        hairColor: "silver",
+        outfitColor: "green",
+        accessory: "hat",
+        spriteVariant: "scout"
+      }
+    });
 
-    this.addWorld(this.add.ellipse(x + 8, y + 28, 138, 34, 0x000000, 0.18).setDepth(18));
+    this.addWorld(this.add.ellipse(x, y + 34, 86, 22, 0x000000, 0.22).setDepth(18));
+    this.addWorld(this.add.circle(x - 27, y + 2, 18, 0x2b1c2f, 1).setDepth(29));
     this.addWorld(this.add
-      .rectangle(x + 38, y + 6, 78, 48, 0x5b3b26, 0.98)
-      .setStrokeStyle(3, 0x281914)
-      .setDepth(24));
-    this.addWorld(this.add.rectangle(x + 38, y - 24, 86, 18, 0xc7923e, 1).setDepth(26));
-    this.addWorld(this.add.circle(x + 4, y + 33, 13, 0x2a1d19, 1).setDepth(27));
-    this.addWorld(this.add.circle(x + 73, y + 33, 13, 0x2a1d19, 1).setDepth(27));
-    this.addWorld(this.add.circle(x + 4, y + 33, 6, 0xc7a46b, 1).setDepth(28));
-    this.addWorld(this.add.circle(x + 73, y + 33, 6, 0xc7a46b, 1).setDepth(28));
-    this.addWorld(this.add.rectangle(x + 89, y - 2, 18, 64, 0x7a5234, 1).setDepth(23));
-    this.addWorld(this.add.circle(x - 34, y - 13, 24, 0x2b1c2f, 1).setDepth(30));
-    this.addWorld(this.add.circle(x - 34, y - 9, 16, 0xd9b384, 1).setDepth(31));
+      .rectangle(x - 30, y + 7, 24, 42, 0x4b2c54, 1)
+      .setStrokeStyle(2, 0x1e1224)
+      .setDepth(30));
     this.addWorld(this.add
-      .triangle(x - 34, y + 38, -33, -30, 33, -30, 0, 38, 0x39213f, 1)
-      .setStrokeStyle(3, 0x1e1224)
-      .setDepth(29));
-    this.addWorld(this.add.rectangle(x - 62, y + 4, 22, 38, 0x765332, 1).setDepth(28));
+      .sprite(x, y, merchantTexture)
+      .setDepth(34)
+      .setScale(1.16));
     this.addWorld(this.add
-      .text(x + 38, y - 51, "Odd Cart", {
+      .ellipse(x + 22, y + 16, 28, 20, 0x8a5a2d, 1)
+      .setStrokeStyle(2, 0x2d1b12)
+      .setDepth(33));
+    this.addWorld(this.add
+      .rectangle(x + 48, y + 28, 72, 24, 0x2f3f52, 0.96)
+      .setStrokeStyle(2, 0xfff3bf, 0.8)
+      .setDepth(31));
+    this.addWorld(this.add.text(x + 48, y + 28, "Wands\nCakes", {
+      fontFamily: "Arial, sans-serif",
+      fontSize: "10px",
+      color: "#fff8e7",
+      align: "center"
+    }).setOrigin(0.5).setDepth(32));
+    this.addWorld(this.add
+      .text(x, y - 59, "Odd Merchant", {
         fontFamily: "Arial, sans-serif",
         fontSize: "13px",
         color: "#fff8e7",
@@ -1046,15 +1074,27 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private sendWeaponAttack(targetEnemyId = this.selectedEnemyId): void {
+    if (!this.canSendGameplayAction("attack")) {
+      return;
+    }
+
     const request = this.buildCombatRequest(targetEnemyId);
     this.room?.send("attack", request);
   }
 
   private useSelectedItem(): void {
+    if (!this.canSendGameplayAction("use item")) {
+      return;
+    }
+
     this.room?.send("useSelectedItem");
   }
 
   private interactOrPickup(): void {
+    if (!this.canSendGameplayAction("interact")) {
+      return;
+    }
+
     if (this.connectionState.nearbyPortalId) {
       this.room?.send("usePortal", { portalId: this.connectionState.nearbyPortalId });
       this.clearClickTarget(true);
@@ -1070,26 +1110,50 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private selectHotbarSlot(slotIndex: number): void {
+    if (!this.canSendGameplayAction("select item")) {
+      return;
+    }
+
     this.room?.send("selectHotbarSlot", { slotIndex });
   }
 
   private giftSelectedItem(): void {
+    if (!this.canSendGameplayAction("gift item")) {
+      return;
+    }
+
     this.room?.send("giftSelectedItem", {});
   }
 
   private buyMerchantItem(itemDefinitionId: ItemDefinitionId): void {
+    if (!this.canSendGameplayAction("buy item")) {
+      return;
+    }
+
     this.room?.send("buyItem", { itemDefinitionId });
   }
 
   private moveHotbarItem(payload: { fromSlotIndex: number; toSlotIndex: number }): void {
+    if (!this.canSendGameplayAction("move item")) {
+      return;
+    }
+
     this.room?.send("moveInventoryItem", payload);
   }
 
   private discardHotbarItem(slotIndex: number): void {
+    if (!this.canSendGameplayAction("drop item")) {
+      return;
+    }
+
     this.room?.send("discardInventoryItem", { slotIndex });
   }
 
   private sendChatMessage(payload: { text: string }): void {
+    if (!this.canSendGameplayAction("chat")) {
+      return;
+    }
+
     const text = payload.text.trim().slice(0, CHAT_MAX_MESSAGE_LENGTH);
 
     if (text.length === 0) {
@@ -1097,6 +1161,33 @@ export class WulandScene extends Phaser.Scene {
     }
 
     this.room?.send("chat", { text });
+  }
+
+  private canSendGameplayAction(actionLabel: string): boolean {
+    if (!this.room) {
+      this.setConnectionState({
+        status: "disconnected",
+        message: `Cannot ${actionLabel}: not connected to WULAND server.`
+      });
+      return false;
+    }
+
+    if (!this.connectionState.serverProtocolOk) {
+      const message = `Cannot ${actionLabel}: NAS server image is outdated. Recreate the server container.`;
+      const localPlayer = this.latestPlayers.get(this.profile.playerId);
+      this.setConnectionState({
+        status: "error",
+        message
+      });
+
+      if (localPlayer) {
+        this.showFloatingText(localPlayer.x, localPlayer.y - 44, "server update needed", "#ffd8a8");
+      }
+
+      return false;
+    }
+
+    return true;
   }
 
   private setGodMode(payload: { active: boolean; code?: string }): void {
@@ -1360,8 +1451,19 @@ export class WulandScene extends Phaser.Scene {
     const activeItemName = activeItem?.itemDefinitionId
       ? ITEM_DEFINITIONS[activeItem.itemDefinitionId].displayName
       : "No item";
+    const serverProtocolVersion = typeof state.serverProtocolVersion === "number"
+      ? state.serverProtocolVersion
+      : 0;
+    const serverProtocolOk = serverProtocolVersion >= WULAND_PROTOCOL_VERSION;
+    const protocolState = serverProtocolOk
+      ? {}
+      : {
+          status: "error" as const,
+          message: `Server image is outdated. Recreate the NAS container so it runs protocol ${WULAND_PROTOCOL_VERSION}.`
+        };
 
     this.setConnectionState({
+      ...protocolState,
       totalPlayers: state.totalPlayers ?? seenPlayers.size,
       onlinePlayers: state.onlinePlayers ?? countPlayers(this.latestPlayers, "online"),
       sleepingPlayers: state.sleepingPlayers ?? countPlayers(this.latestPlayers, "sleeping"),
@@ -1379,7 +1481,9 @@ export class WulandScene extends Phaser.Scene {
       totalDroppedItems: state.totalDroppedItems ?? seenDroppedItems.size,
       godModeAvailable: Boolean(state.godModeEnabled),
       godModeCodeRequired: Boolean(state.godModeCodeRequired),
-      godModeActive: this.godModeActive
+      godModeActive: this.godModeActive,
+      serverProtocolVersion,
+      serverProtocolOk
     });
   }
 
@@ -2100,9 +2204,13 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private handleRoomError(code: number, message?: string): void {
+    const isUnregisteredAction = message?.toLowerCase().includes("not registered") ?? false;
+
     this.setConnectionState({
       status: "error",
-      message: message || `WULAND server error (${code})`
+      message: isUnregisteredAction
+        ? "Server image is outdated. Recreate the NAS container, then hard-refresh the browser."
+        : message || `WULAND server error (${code})`
     });
   }
 

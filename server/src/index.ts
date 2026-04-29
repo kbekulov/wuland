@@ -4,7 +4,10 @@ import dotenv from "dotenv";
 import express from "express";
 import { Server } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
-import { DEFAULT_OFFLINE_PLAYER_TTL_HOURS } from "@wuland/shared";
+import {
+  DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
+  WULAND_PROTOCOL_VERSION
+} from "@wuland/shared";
 import { createPlayerStore } from "./persistence/playerStore.js";
 import { WulandRoom } from "./rooms/WulandRoom.js";
 
@@ -44,6 +47,7 @@ app.get("/health", (_request, response) => {
     ok: true,
     service: "wuland-server",
     environment: NODE_ENV,
+    protocolVersion: WULAND_PROTOCOL_VERSION,
     room: "wuland",
     offlinePlayerTtlHours: OFFLINE_PLAYER_TTL_HOURS,
     clearPlayerStoreOnStart: CLEAR_PLAYER_STORE_ON_START,

@@ -12,6 +12,7 @@ import {
   PLAYER_MAX_HP,
   PLAYER_MOVE_SPEED,
   PLAYER_RESPAWN_MS,
+  PLAYER_STARTING_MONEY,
   WULAND_ENEMY_SPAWNS,
   WULAND_AMBIENT_NPCS,
   WULAND_MAP_ID,
@@ -99,6 +100,7 @@ const NPC_SPEECH_MIN_MS = 7000;
 const NPC_SPEECH_MAX_MS = 13500;
 const NPC_SPEECH_DURATION_MS = 3600;
 const FORCE_DELETED_CLOSE_CODE = 4008;
+const PURCHASE_LOG_PREFIX = "[WULAND purchase]";
 
 export class WulandInventorySlotSchema extends Schema {
   @type("number") slotIndex = 0;
@@ -136,6 +138,7 @@ export class WulandPlayerSchema extends Schema {
   @type("string") markedTargets = "";
   @type([WulandInventorySlotSchema]) inventory = new ArraySchema<WulandInventorySlotSchema>();
   @type("number") selectedHotbarSlot = 0;
+  @type("number") money = PLAYER_STARTING_MONEY;
   @type("string") role = "";
   @type("string") joinedAt = "";
   @type("string") lastSeenAt = "";
@@ -488,13 +491,17 @@ export class WulandRoom extends Room<WulandRoomState> {
     const player = existing ?? new WulandPlayerSchema();
     const existingRecord = existing ? recordFromSchema(existing) : null;
     const inventory = stored?.inventory ?? existingRecord?.inventory;
+    const shouldGiveStarterInventory = !stored && !existingRecord;
 
     applyProfileToSchema(player, options.profile);
     resetPlayerCombat(player);
-    applyInventoryToSchema(player, inventory, options.profile.playerId);
+    applyInventoryToSchema(player, inventory, options.profile.playerId, {
+      starterWhenEmpty: shouldGiveStarterInventory
+    });
     player.selectedHotbarSlot = normalizeHotbarSlot(
       stored?.selectedHotbarSlot ?? existingRecord?.selectedHotbarSlot ?? player.selectedHotbarSlot
     );
+    player.money = normalizeMoney(stored?.money ?? existingRecord?.money);
     player.sessionId = client.sessionId;
     player.mapId = mapId;
     player.x = position.x;
@@ -1325,32 +1332,55 @@ export class WulandRoom extends Room<WulandRoomState> {
   private buyItem(playerId: string, itemDefinitionId: ItemDefinitionId): void {
     const player = this.state.players.get(playerId);
     const stockItem = WULAND_MERCHANT_STOCK.find((item) => item.itemDefinitionId === itemDefinitionId);
+    const itemDefinition = ITEM_DEFINITIONS[itemDefinitionId];
+    const playerLabel = player ? `${player.name} (${player.playerId})` : playerId;
 
-    if (!player || !player.online || player.sleeping || player.defeated || !stockItem) {
+    console.log(`${PURCHASE_LOG_PREFIX} attempt player=${playerLabel} item=${itemDefinitionId}`);
+
+    if (!player || !player.online || player.sleeping || player.defeated) {
+      console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=player-unavailable`);
+      return;
+    }
+
+    if (!stockItem || !itemDefinition) {
+      console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=item-not-for-sale`);
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Item is not for sale", "#ffd8a8");
       return;
     }
 
     if (!isNearMerchant(player)) {
+      console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=too-far`);
       this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Shop is too far away", "#ffd8a8");
+      return;
+    }
+
+    player.money = normalizeMoney(player.money);
+
+    if (player.money < stockItem.price) {
+      console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=not-enough-money money=${player.money} price=${stockItem.price}`);
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Not enough money", "#ffd8a8");
       return;
     }
 
     const item = createInventoryItem(itemDefinitionId, player.playerId);
 
     if (!addItemToInventory(player, item)) {
+      console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=inventory-full`);
       this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Inventory full", "#ffd8a8");
       return;
     }
 
+    player.money -= stockItem.price;
     this.persistPlayer(player);
+    console.log(`${PURCHASE_LOG_PREFIX} success player=${playerLabel} item=${itemDefinitionId} price=${stockItem.price} money=${player.money}`);
     this.broadcastCombatEvent(
       "shop",
       player.playerId,
       player.playerId,
       player.x,
       player.y,
-      0,
-      `Bought ${ITEM_DEFINITIONS[itemDefinitionId].displayName}`,
+      stockItem.price,
+      `Bought ${itemDefinition.displayName}`,
       "#fff3bf",
       itemDefinitionId
     );
@@ -1950,6 +1980,11 @@ const normalizeHotbarSlot = (slotIndex: unknown): number =>
     ? slotIndex
     : 0;
 
+const normalizeMoney = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : PLAYER_STARTING_MONEY;
+
 const slotRecordFromSchema = (slot: WulandInventorySlotSchema): InventorySlotState => ({
   slotIndex: normalizeHotbarSlot(slot.slotIndex),
   itemDefinitionId: slot.itemDefinitionId as InventorySlotState["itemDefinitionId"],
@@ -1999,9 +2034,10 @@ const inventorySlotAt = (
 const applyInventoryToSchema = (
   player: WulandPlayerSchema,
   inventory: InventorySlotState[] | undefined,
-  seedPrefix: string
+  seedPrefix: string,
+  options: { starterWhenEmpty?: boolean } = {}
 ): void => {
-  const source = normalizeInventory(inventory, seedPrefix);
+  const source = normalizeInventory(inventory, seedPrefix, options);
   player.inventory.clear();
   source.forEach((slot) => {
     const slotSchema = new WulandInventorySlotSchema();
@@ -2266,8 +2302,11 @@ const schemaFromRecord = (record: PlayerNetworkState): WulandPlayerSchema => {
   player.joinedAt = record.joinedAt;
   player.lastSeenAt = record.lastSeenAt;
   player.lastSavedAt = record.lastSavedAt;
+  player.money = normalizeMoney(record.money);
   resetPlayerCombat(player);
-  applyInventoryToSchema(player, record.inventory, record.playerId);
+  applyInventoryToSchema(player, record.inventory, record.playerId, {
+    starterWhenEmpty: false
+  });
   player.selectedHotbarSlot = normalizeHotbarSlot(record.selectedHotbarSlot);
   return player;
 };
@@ -2301,6 +2340,7 @@ const recordFromSchema = (player: WulandPlayerSchema): PlayerNetworkState => ({
   markedTargets: "",
   inventory: inventoryFromSchema(player),
   selectedHotbarSlot: normalizeHotbarSlot(player.selectedHotbarSlot),
+  money: normalizeMoney(player.money),
   role: player.role,
   joinedAt: player.joinedAt,
   lastSeenAt: player.lastSeenAt,

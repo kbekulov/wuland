@@ -568,6 +568,7 @@ label span,
 
   .hud-card:not(:hover):not(:focus-within) .hud-hint,
   .hud-card:not(:hover):not(:focus-within) .hud-active-item,
+  .hud-card:not(:hover):not(:focus-within) .hud-money,
   .hud-card:not(:hover):not(:focus-within) .hud-network,
   .hud-card:not(:hover):not(:focus-within) .hud-counts,
   .hud-card:not(:hover):not(:focus-within) .hud-section,
@@ -712,6 +713,22 @@ label span,
 
 .hud-active-item span:last-child {
   min-height: 15px;
+  color: #fff3bf;
+}
+
+.hud-money {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  border-radius: 8px;
+  background: rgba(255, 243, 191, 0.12);
+  color: #dff7f1;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.hud-money strong {
   color: #fff3bf;
 }
 
@@ -1052,6 +1069,12 @@ label span,
   font-weight: 800;
 }
 
+.shop-feedback {
+  min-height: 18px;
+  color: #91f2bd;
+  font-weight: 800;
+}
+
 .merchant-stock {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1067,6 +1090,10 @@ label span,
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.07);
   padding: 10px;
+}
+
+.merchant-item.blocked {
+  opacity: 0.68;
 }
 
 .merchant-icon {
@@ -1213,6 +1240,7 @@ body[data-touch-controls] .mobile-controls {
   .hud-location,
   .hud-network,
   .hud-active-item,
+  .hud-money,
   .hud-hint,
   .hud-combat,
   .hud-counts {

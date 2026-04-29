@@ -88,7 +88,8 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 10;
+export const WULAND_PROTOCOL_VERSION = 11;
+export const PLAYER_STARTING_MONEY = 999_999;
 
 export const GENDERS = ["male", "female"] as const;
 export type Gender = (typeof GENDERS)[number];
@@ -988,6 +989,7 @@ export interface MerchantDefinition {
 
 export interface MerchantStockItem {
   itemDefinitionId: ItemDefinitionId;
+  price: number;
   priceLabel: string;
 }
 
@@ -1009,14 +1011,14 @@ export const WULAND_MERCHANT: MerchantDefinition = {
 } as const;
 
 export const WULAND_MERCHANT_STOCK: MerchantStockItem[] = [
-  { itemDefinitionId: "sword", priceLabel: "0 WULAND coins" },
-  { itemDefinitionId: "magic-wand", priceLabel: "0 WULAND coins" },
-  { itemDefinitionId: "rock", priceLabel: "0 WULAND coins" },
-  { itemDefinitionId: "chocolate-cake", priceLabel: "free for prototype" },
-  { itemDefinitionId: "fruit-cake", priceLabel: "free for prototype" },
-  { itemDefinitionId: "honey-cake", priceLabel: "free for prototype" },
-  { itemDefinitionId: "cheese-cake", priceLabel: "free for prototype" },
-  { itemDefinitionId: "mystery-cake", priceLabel: "free for prototype" }
+  { itemDefinitionId: "rock", price: 1000, priceLabel: "1,000 WULAND coins" },
+  { itemDefinitionId: "sword", price: 3000, priceLabel: "3,000 WULAND coins" },
+  { itemDefinitionId: "magic-wand", price: 4500, priceLabel: "4,500 WULAND coins" },
+  { itemDefinitionId: "chocolate-cake", price: 1500, priceLabel: "1,500 WULAND coins" },
+  { itemDefinitionId: "fruit-cake", price: 1200, priceLabel: "1,200 WULAND coins" },
+  { itemDefinitionId: "honey-cake", price: 2000, priceLabel: "2,000 WULAND coins" },
+  { itemDefinitionId: "cheese-cake", price: 1800, priceLabel: "1,800 WULAND coins" },
+  { itemDefinitionId: "mystery-cake", price: 2500, priceLabel: "2,500 WULAND coins" }
 ] as const;
 
 export const AMBIENT_NPC_TYPES = [
@@ -1302,6 +1304,7 @@ export interface PlayerNetworkState {
   markedTargets: string;
   inventory: InventorySlotState[];
   selectedHotbarSlot: number;
+  money: number;
   role: string;
   joinedAt: string;
   lastSeenAt: string;
@@ -1481,10 +1484,13 @@ export const createStarterInventory = (seedPrefix = "starter"): InventorySlotSta
 
 export const normalizeInventory = (
   value: unknown,
-  seedPrefix = "starter"
+  seedPrefix = "starter",
+  options: { starterWhenEmpty?: boolean } = {}
 ): InventorySlotState[] => {
+  const starterWhenEmpty = options.starterWhenEmpty ?? true;
+
   if (!Array.isArray(value)) {
-    return createStarterInventory(seedPrefix);
+    return starterWhenEmpty ? createStarterInventory(seedPrefix) : createEmptyInventory();
   }
 
   const inventory = createEmptyInventory();
@@ -1500,7 +1506,9 @@ export const normalizeInventory = (
 
   return inventory.some((slot) => slot.itemDefinitionId !== "")
     ? inventory
-    : createStarterInventory(seedPrefix);
+    : starterWhenEmpty
+      ? createStarterInventory(seedPrefix)
+      : createEmptyInventory();
 };
 
 export const isHotbarSelectRequest = (value: unknown): value is HotbarSelectRequest =>

@@ -9,6 +9,7 @@ import {
   DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
   HOTBAR_SLOT_COUNT,
   PLAYER_MAX_HP,
+  PLAYER_STARTING_MONEY,
   WULAND_WORLD,
   clampMapPosition,
   isAmbientNpcNetworkState,
@@ -430,6 +431,7 @@ const isStoredPlayer = (value: unknown): value is PlayerNetworkState => {
     (player.markedTargets === undefined || typeof player.markedTargets === "string") &&
     (player.inventory === undefined || Array.isArray(player.inventory)) &&
     (player.selectedHotbarSlot === undefined || typeof player.selectedHotbarSlot === "number") &&
+    (player.money === undefined || typeof player.money === "number") &&
     typeof player.role === "string" &&
     typeof player.joinedAt === "string" &&
     typeof player.lastSeenAt === "string" &&
@@ -500,7 +502,9 @@ const repairStoredPlayer = (value: unknown, index: number): PlayerNetworkState |
     specialCooldownUntil: 0,
     activeBuffs: "",
     markedTargets: "",
-    inventory: normalizeInventory(Array.isArray(value.inventory) ? value.inventory : undefined, playerId),
+    inventory: normalizeInventory(Array.isArray(value.inventory) ? value.inventory : undefined, playerId, {
+      starterWhenEmpty: false
+    }),
     selectedHotbarSlot:
       typeof value.selectedHotbarSlot === "number" &&
       Number.isInteger(value.selectedHotbarSlot) &&
@@ -508,6 +512,7 @@ const repairStoredPlayer = (value: unknown, index: number): PlayerNetworkState |
       value.selectedHotbarSlot < HOTBAR_SLOT_COUNT
         ? value.selectedHotbarSlot
         : 0,
+    money: normalizeStoredMoney(value.money),
     role: CLASS_METADATA[className].futureRole,
     joinedAt: typeof value.joinedAt === "string" ? value.joinedAt : now,
     lastSeenAt: typeof value.lastSeenAt === "string" ? value.lastSeenAt : now,
@@ -537,19 +542,25 @@ const normalizeStoredPlayer = (player: PlayerNetworkState): PlayerNetworkState =
     specialCooldownUntil: 0,
     activeBuffs: "",
     markedTargets: "",
-    inventory: normalizeInventory(player.inventory, player.playerId),
+    inventory: normalizeInventory(player.inventory, player.playerId, {
+      starterWhenEmpty: false
+    }),
     selectedHotbarSlot:
       Number.isInteger(player.selectedHotbarSlot) &&
       player.selectedHotbarSlot >= 0 &&
       player.selectedHotbarSlot < HOTBAR_SLOT_COUNT
         ? player.selectedHotbarSlot
-        : 0
+        : 0,
+    money: normalizeStoredMoney(player.money)
   };
 };
 
 const clonePlayer = (player: PlayerNetworkState): PlayerNetworkState => ({
   ...player,
-  inventory: normalizeInventory(player.inventory, player.playerId)
+  inventory: normalizeInventory(player.inventory, player.playerId, {
+    starterWhenEmpty: false
+  }),
+  money: normalizeStoredMoney(player.money)
 });
 
 const cloneDroppedItem = (item: DroppedItemNetworkState): DroppedItemNetworkState => ({
@@ -584,6 +595,11 @@ const cloneChatMessage = (message: ChatMessage): ChatMessage => ({
   text: message.text.slice(0, CHAT_MAX_MESSAGE_LENGTH),
   sentAt: message.sentAt
 });
+
+const normalizeStoredMoney = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : PLAYER_STARTING_MONEY;
 
 const clampDroppedItemPosition = (
   item: DroppedItemNetworkState

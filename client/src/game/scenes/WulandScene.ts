@@ -141,6 +141,7 @@ export interface WulandConnectionState {
   defeated: boolean;
   inventory: InventorySlotState[];
   selectedHotbarSlot: number;
+  money: number;
   activeItemName: string;
   nearbyPickupName: string;
   nearMerchant: boolean;
@@ -200,6 +201,7 @@ export class WulandScene extends Phaser.Scene {
     defeated: false,
     inventory: createEmptyClientInventory(),
     selectedHotbarSlot: 0,
+    money: 0,
     activeItemName: "No item",
     nearbyPickupName: "",
     nearMerchant: false,
@@ -288,6 +290,7 @@ export class WulandScene extends Phaser.Scene {
       defeated: false,
       inventory: createEmptyClientInventory(),
       selectedHotbarSlot: 0,
+      money: 0,
       activeItemName: "No item",
       nearbyPickupName: "",
       nearMerchant: false,
@@ -1479,6 +1482,7 @@ export class WulandScene extends Phaser.Scene {
       defeated: Boolean(localPlayer?.defeated),
       inventory,
       selectedHotbarSlot,
+      money: localPlayer?.money ?? 0,
       activeItemName,
       currentMapId: activeMapId,
       currentMapName: getMapDisplayName(activeMapId),
@@ -1928,6 +1932,16 @@ export class WulandScene extends Phaser.Scene {
 
     this.showFloatingText(event.x, event.y, event.text, event.color);
 
+    if (
+      event.type === "shop" ||
+      event.text === "Inventory full" ||
+      event.text === "Not enough money" ||
+      event.text === "Item is not for sale" ||
+      event.text === "Shop is too far away"
+    ) {
+      this.game.events.emit("wuland:shopFeedback", event.text);
+    }
+
     if (event.type === "basic" || event.type === "special" || event.type === "weapon") {
       this.showAttackEffect(event);
     }
@@ -2357,6 +2371,7 @@ const snapshotPlayer = (player: PlayerNetworkState): PlayerNetworkState => ({
   markedTargets: player.markedTargets,
   inventory: snapshotInventory(player.inventory),
   selectedHotbarSlot: player.selectedHotbarSlot ?? 0,
+  money: typeof player.money === "number" ? player.money : 0,
   role: player.role,
   joinedAt: player.joinedAt,
   lastSeenAt: player.lastSeenAt,

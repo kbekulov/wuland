@@ -50,6 +50,7 @@ export class UIScene extends Phaser.Scene {
       quantity: 0
     })),
     selectedHotbarSlot: 0,
+    money: 0,
     activeItemName: "No item",
     nearbyPickupName: "",
     nearMerchant: false,
@@ -69,6 +70,7 @@ export class UIScene extends Phaser.Scene {
   private chatMessages: ChatMessage[] = [];
   private chatCollapsed = false;
   private godModeCode = "";
+  private shopFeedback = "";
 
   constructor() {
     super("UIScene");
@@ -88,6 +90,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.on("wuland:openMerchantShop", this.openMerchantShop, this);
     this.game.events.on("wuland:chatHistory", this.handleChatHistory, this);
     this.game.events.on("wuland:chatMessage", this.handleChatMessage, this);
+    this.game.events.on("wuland:shopFeedback", this.handleShopFeedback, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
   }
 
@@ -130,6 +133,10 @@ export class UIScene extends Phaser.Scene {
           <span class="eyebrow">Selected</span>
           <strong data-hud-active-item>No item</strong>
           <span data-hud-pickup-hint></span>
+        </div>
+        <div class="hud-money">
+          <span class="eyebrow">Money</span>
+          <strong data-hud-money>0</strong>
         </div>
         <div class="hud-network">
           <span class="status-dot"></span>
@@ -188,7 +195,8 @@ export class UIScene extends Phaser.Scene {
             </div>
             <button type="button" class="secondary small" data-action="close-shop">Close</button>
           </header>
-          <p class="shop-note">Currency is infinite for this prototype. Prices are flavor.</p>
+          <p class="shop-note">Prototype test funds: <strong data-shop-money>0</strong></p>
+          <p class="shop-feedback" data-shop-feedback></p>
           <div class="merchant-stock" data-merchant-stock></div>
         </div>
       </section>
@@ -261,6 +269,9 @@ export class UIScene extends Phaser.Scene {
       `${this.connection.localHp}/${this.connection.localMaxHp}${this.connection.defeated ? " respawning" : ""}`
     );
     this.setText("[data-hud-active-item]", this.connection.activeItemName);
+    this.setText("[data-hud-money]", `${formatMoney(this.connection.money)} coins`);
+    this.setText("[data-shop-money]", `${formatMoney(this.connection.money)} WULAND coins`);
+    this.setText("[data-shop-feedback]", this.shopFeedback);
     this.setText("[data-hud-pickup-hint]", this.interactionHint());
     this.setText("[data-hud-enemies]", String(this.connection.totalEnemies));
     this.setText("[data-hud-alive-enemies]", String(this.connection.aliveEnemies));
@@ -309,6 +320,9 @@ export class UIScene extends Phaser.Scene {
 
   private openMerchantShop(force = true): void {
     this.shopOpen = force;
+    if (force) {
+      this.shopFeedback = "";
+    }
     this.render();
   }
 
@@ -372,6 +386,11 @@ export class UIScene extends Phaser.Scene {
 
   private handleChatHistory(messages: ChatMessage[]): void {
     this.chatMessages = mergeChatMessages(this.chatMessages, messages);
+    this.render();
+  }
+
+  private handleShopFeedback(message: string): void {
+    this.shopFeedback = message;
     this.render();
   }
 
@@ -517,15 +536,28 @@ export class UIScene extends Phaser.Scene {
 
     stock.innerHTML = WULAND_MERCHANT_STOCK.map((stockItem) => {
       const definition = ITEM_DEFINITIONS[stockItem.itemDefinitionId];
+      const canFit = canFitInventoryItem(this.connection.inventory, stockItem.itemDefinitionId);
+      const canAfford = this.connection.money >= stockItem.price;
+      const disabledReason = !canFit
+        ? "Inventory full"
+        : !canAfford
+          ? "Need more coins"
+          : "";
       return `
-        <article class="merchant-item">
+        <article class="merchant-item${disabledReason ? " blocked" : ""}">
           <strong class="merchant-icon">${definition.iconText}</strong>
           <div>
             <h3>${definition.displayName}</h3>
             <span>${definition.itemType} | ${stockItem.priceLabel}</span>
             <p>${definition.description}</p>
           </div>
-          <button type="button" class="primary small" data-buy-item="${definition.itemDefinitionId}">Buy</button>
+          <button
+            type="button"
+            class="primary small"
+            data-buy-item="${definition.itemDefinitionId}"
+            ${disabledReason ? "disabled" : ""}
+            title="${disabledReason || `Buy ${definition.displayName}`}"
+          >${disabledReason || "Buy"}</button>
         </article>
       `;
     }).join("");
@@ -638,6 +670,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.off("wuland:openMerchantShop", this.openMerchantShop, this);
     this.game.events.off("wuland:chatHistory", this.handleChatHistory, this);
     this.game.events.off("wuland:chatMessage", this.handleChatMessage, this);
+    this.game.events.off("wuland:shopFeedback", this.handleShopFeedback, this);
     window.removeEventListener("pointermove", this.handleHotbarPointerMove);
     window.removeEventListener("pointerup", this.handleHotbarPointerUp);
     window.removeEventListener("keydown", this.handleWindowKeydown, true);
@@ -660,6 +693,30 @@ const mergeChatMessages = (
     .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt))
     .slice(-CHAT_HISTORY_LIMIT);
 };
+
+const canFitInventoryItem = (
+  inventory: InventorySlotState[],
+  itemDefinitionId: ItemDefinitionId
+): boolean => {
+  const definition = ITEM_DEFINITIONS[itemDefinitionId];
+
+  if (definition.stackable) {
+    const stackSlot = inventory.find((slot) =>
+      slot.itemDefinitionId === itemDefinitionId &&
+      slot.quantity > 0 &&
+      slot.quantity < definition.maxStack
+    );
+
+    if (stackSlot) {
+      return true;
+    }
+  }
+
+  return inventory.some((slot) => !slot.itemDefinitionId || slot.quantity <= 0);
+};
+
+const formatMoney = (value: number): string =>
+  Math.max(0, Math.floor(value)).toLocaleString("en-US");
 
 const tooltipActionForItem = (itemDefinitionId: ItemDefinitionId): string => {
   const definition = ITEM_DEFINITIONS[itemDefinitionId];

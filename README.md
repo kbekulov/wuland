@@ -1,6 +1,6 @@
 # WULAND
 
-WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 9 keeps multiplayer movement, sleeping players, multi-map interiors, enemies, server-authoritative combat, shared weapons, inventory, merchant shopping, cakes, dropped items, NPCs, chat, and God Mode, then adds persistent server chat history, the Data Analyst class, and safer JSON migrations.
+WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 10 keeps multiplayer movement, sleeping players, multi-map interiors, enemies, server-authoritative combat, shared weapons, inventory, merchant shopping, cakes, dropped items, NPCs, persistent chat, Data Analyst, and God Mode, then fixes merchant buying with server-authoritative money and inventory updates.
 
 ## Local Development
 
@@ -119,18 +119,20 @@ Weapons:
 
 The mysterious Odd Merchant stands near the main WULAND village path around the center-left of town. Stand near the merchant and press `F` to open the shop. On mobile, use the Interact button.
 
-Currency is infinite in this prototype. The shop still shows prices as flavor, but buying does not spend money.
+Every new or returning character receives 999,999 WULAND coins for prototype testing. Money is stored on the server, persisted with the player record, and only the server can subtract it or add purchased items.
 
 The merchant sells:
 
-- Sword
-- Magic Wand
-- Rock
-- Chocolate Cake
-- Fruit Cake
-- Honey Cake
-- Cheese Cake
-- Mystery Cake
+- Rock: 1,000 coins
+- Sword: 3,000 coins
+- Magic Wand: 4,500 coins
+- Chocolate Cake: 1,500 coins
+- Fruit Cake: 1,200 coins
+- Honey Cake: 2,000 coins
+- Cheese Cake: 1,800 coins
+- Mystery Cake: 2,500 coins
+
+Buying is server-authoritative: click `Buy`, the server validates the item, money, and inventory space, subtracts the price, and adds the item to the authoritative hotbar. If the inventory is full, the shop shows `Inventory full` and the purchase is blocked.
 
 Cakes are consumables. Select a cake with `1` through `9`, then press `E` to eat it and heal. Stand near another online player and press `G` to gift the selected cake. Cakes can also be dragged out of the hotbar to drop them on the map, then another player can pick them up with `F`.
 
@@ -256,10 +258,12 @@ Phase 4 added mobile controls and deployment hardening.
 
 Phase 5 replaces class abilities with shared weapons, a 9-slot inventory hotbar, item dropping, pickup, and dropped-item persistence.
 
-Phase 6 adds the merchant shop, infinite prototype currency, purchasable weapons, multiple healing cakes, cake gifting, and persisted bought/dropped cake items.
+Phase 6 added the merchant shop, purchasable weapons, multiple healing cakes, cake gifting, and persisted bought/dropped cake items. Phase 10 replaces the old free prototype buying flow with server-authoritative test money.
 
 Phase 7 adds multi-map WULAND, enterable building interiors, server-authoritative portal transitions, map-specific sleeping players, and map-specific dropped items.
 
 Phase 8 adds ambient NPCs, global chat with same-map speech bubbles, and prototype God Mode deletion for players and dropped items.
 
 Phase 9 adds persistent server chat history, the Data Analyst class, and safer JSON persistence migrations that skip or repair malformed records instead of discarding the whole store.
+
+Phase 10 fixes merchant buying, adds persisted prototype money, item prices, purchase logs, and stricter inventory repair for bought, dropped, picked-up, and reconnected items.

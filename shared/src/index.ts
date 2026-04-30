@@ -854,6 +854,7 @@ export interface ItemDefinition {
   displayName: string;
   itemType: ItemType;
   iconText: string;
+  iconAsset?: string;
   description: string;
   stackable: boolean;
   maxStack: number;
@@ -873,6 +874,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Sword",
     itemType: "weapon",
     iconText: "SWD",
+    iconAsset: "/assets/items/sword.png",
     description: "A simple short-range melee weapon.",
     stackable: false,
     maxStack: 1,
@@ -886,6 +888,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Magic Wand",
     itemType: "weapon",
     iconText: "WND",
+    iconAsset: "/assets/items/magic-wand.png",
     description: "Fires a readable medium-damage magic bolt.",
     stackable: false,
     maxStack: 1,
@@ -899,6 +902,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Rock",
     itemType: "weapon",
     iconText: "ROC",
+    iconAsset: "/assets/items/rock.png",
     description: "A suspiciously useful thrown placeholder weapon.",
     stackable: false,
     maxStack: 1,
@@ -912,6 +916,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Cake",
     itemType: "consumable",
     iconText: "CAK",
+    iconAsset: "/assets/items/cake.png",
     description: "Restores a small amount of HP.",
     stackable: true,
     maxStack: 9,
@@ -923,6 +928,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Chocolate Cake",
     itemType: "consumable",
     iconText: "CHO",
+    iconAsset: "/assets/items/chocolate-cake.png",
     description: "Rich morale restoration with a very practical amount of frosting.",
     stackable: true,
     maxStack: 9,
@@ -934,6 +940,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Fruit Cake",
     itemType: "consumable",
     iconText: "FRU",
+    iconAsset: "/assets/items/fruit-cake.png",
     description: "A light snack that restores a small amount of HP.",
     stackable: true,
     maxStack: 9,
@@ -945,6 +952,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Honey Cake",
     itemType: "consumable",
     iconText: "HNY",
+    iconAsset: "/assets/items/honey-cake.png",
     description: "Sticky, bright, and surprisingly effective at patching morale.",
     stackable: true,
     maxStack: 9,
@@ -956,6 +964,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Cheese Cake",
     itemType: "consumable",
     iconText: "CHS",
+    iconAsset: "/assets/items/cheese-cake.png",
     description: "A dense recovery cake with questionable structural integrity.",
     stackable: true,
     maxStack: 9,
@@ -967,6 +976,7 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     displayName: "Mystery Cake",
     itemType: "consumable",
     iconText: "MYS",
+    iconAsset: "/assets/items/mystery-cake.png",
     description: "Restores a safe but unpredictable amount of HP. Probably cake.",
     stackable: true,
     maxStack: 9,

@@ -12,6 +12,7 @@ import {
   isCakeItemDefinitionId,
   type ChatMessage,
   type InventorySlotState,
+  type ItemDefinition,
   type ItemDefinitionId,
   type LocalProgress,
   type PlayerProfile
@@ -519,7 +520,7 @@ export class UIScene extends Phaser.Scene {
           title="${escapeAttribute(tooltip)}"
         >
           <span class="hotbar-number">${slot.slotIndex + 1}</span>
-          <strong>${definition?.iconText ?? ""}</strong>
+          ${itemIconMarkup(definition)}
           <small>${definition?.displayName ?? "Empty"}</small>
           ${count}
         </button>
@@ -545,7 +546,7 @@ export class UIScene extends Phaser.Scene {
           : "";
       return `
         <article class="merchant-item${disabledReason ? " blocked" : ""}">
-          <strong class="merchant-icon">${definition.iconText}</strong>
+          <span class="merchant-icon">${itemIconMarkup(definition)}</span>
           <div>
             <h3>${definition.displayName}</h3>
             <span>${definition.itemType} | ${stockItem.priceLabel}</span>
@@ -717,6 +718,28 @@ const canFitInventoryItem = (
 
 const formatMoney = (value: number): string =>
   Math.max(0, Math.floor(value)).toLocaleString("en-US");
+
+const itemIconMarkup = (
+  definition: ItemDefinition | null
+): string => {
+  if (!definition) {
+    return `<strong class="item-icon-fallback"></strong>`;
+  }
+
+  if (!definition.iconAsset) {
+    return `<strong class="item-icon-fallback">${escapeHtml(definition.iconText)}</strong>`;
+  }
+
+  return `
+    <img
+      class="item-icon-image"
+      src="${escapeAttribute(definition.iconAsset)}"
+      alt=""
+      loading="lazy"
+      draggable="false"
+    />
+  `;
+};
 
 const tooltipActionForItem = (itemDefinitionId: ItemDefinitionId): string => {
   const definition = ITEM_DEFINITIONS[itemDefinitionId];

@@ -47,6 +47,7 @@ import {
   saveProgress
 } from "../../persistence/localSave.ts";
 import {
+  type CharacterTextureProfile,
   characterTextureProfileFromNetwork,
   createCharacterTexture
 } from "../player/characterTexture.ts";
@@ -81,6 +82,7 @@ interface CombatKeys {
 interface PlayerAvatar {
   playerId: string;
   sprite: Phaser.GameObjects.Sprite;
+  heldItem: Phaser.GameObjects.Image;
   aura: Phaser.GameObjects.Arc;
   hpBg: Phaser.GameObjects.Rectangle;
   hpFill: Phaser.GameObjects.Rectangle;
@@ -111,7 +113,8 @@ interface DroppedItemAvatar {
   droppedItemId: string;
   container: Phaser.GameObjects.Container;
   body: Phaser.GameObjects.Rectangle;
-  iconLabel: Phaser.GameObjects.Text;
+  icon: Phaser.GameObjects.Image;
+  countLabel: Phaser.GameObjects.Text;
   nameLabel: Phaser.GameObjects.Text;
   lastState: DroppedItemNetworkState;
 }
@@ -119,12 +122,24 @@ interface DroppedItemAvatar {
 interface NpcAvatar {
   npcId: string;
   container: Phaser.GameObjects.Container;
-  body: Phaser.GameObjects.Arc;
-  accent: Phaser.GameObjects.Rectangle;
+  sprite: Phaser.GameObjects.Sprite;
+  propLabel: Phaser.GameObjects.Text;
   nameLabel: Phaser.GameObjects.Text;
-  speechLabel: Phaser.GameObjects.Text;
   target: Phaser.Math.Vector2;
   lastState: AmbientNpcNetworkState;
+}
+
+type SpeechSpeakerType = "player" | "npc" | "merchant";
+
+interface SpeechBubbleAvatar {
+  bubbleId: string;
+  speakerType: SpeechSpeakerType;
+  speakerId: string;
+  mapId: WulandMapId;
+  label: Phaser.GameObjects.Text;
+  expiresAt: number;
+  offsetX: number;
+  offsetY: number;
 }
 
 export interface WulandConnectionState {
@@ -182,6 +197,7 @@ export class WulandScene extends Phaser.Scene {
   private enemyAvatars = new Map<string, EnemyAvatar>();
   private droppedItemAvatars = new Map<string, DroppedItemAvatar>();
   private npcAvatars = new Map<string, NpcAvatar>();
+  private speechBubbles = new Map<string, SpeechBubbleAvatar>();
   private latestPlayers = new Map<string, PlayerNetworkState>();
   private latestEnemies = new Map<string, EnemyNetworkState>();
   private latestDroppedItems = new Map<string, DroppedItemNetworkState>();
@@ -223,7 +239,6 @@ export class WulandScene extends Phaser.Scene {
   private virtualInput: MovementInput = { ...ZERO_INPUT };
   private clickTarget?: Phaser.Math.Vector2;
   private destinationMarker?: Phaser.GameObjects.Arc;
-  private merchantBubble?: Phaser.GameObjects.Text;
   private merchantSpeechTimer?: Phaser.Time.TimerEvent;
   private targetStartedAt = 0;
   private lastTargetDistance = Number.POSITIVE_INFINITY;
@@ -260,6 +275,7 @@ export class WulandScene extends Phaser.Scene {
     this.enemyAvatars.clear();
     this.droppedItemAvatars.clear();
     this.npcAvatars.clear();
+    this.speechBubbles.clear();
     this.latestPlayers.clear();
     this.latestEnemies.clear();
     this.latestDroppedItems.clear();
@@ -337,6 +353,7 @@ export class WulandScene extends Phaser.Scene {
     this.updateAvatarPositions(delta);
     this.updateEnemyPositions(delta);
     this.updateNpcPositions(delta);
+    this.updateSpeechBubbles();
 
     const localPlayer = this.latestPlayers.get(this.profile.playerId);
 
@@ -444,8 +461,7 @@ export class WulandScene extends Phaser.Scene {
   private clearWorldObjects(): void {
     this.merchantSpeechTimer?.remove(false);
     this.merchantSpeechTimer = undefined;
-    this.merchantBubble?.destroy();
-    this.merchantBubble = undefined;
+    this.destroyAllSpeechBubbles();
     this.worldObjects.forEach((object) => {
       this.tweens.killTweensOf(object);
       object.destroy();
@@ -739,16 +755,6 @@ export class WulandScene extends Phaser.Scene {
         .triangle(centerX, arrowY, -14, -11, 14, -11, 0, 13, 0xfff3bf, 1)
         .setStrokeStyle(2, 0x442d12, 0.9)
         .setDepth(36));
-      this.addWorld(this.add
-        .text(centerX, arrowY - 22, portal.label, {
-          fontFamily: "Arial, sans-serif",
-          fontSize: "12px",
-          color: "#1b1c1d",
-          backgroundColor: "#fff3bf",
-          padding: { x: 6, y: 3 }
-        })
-        .setOrigin(0.5)
-        .setDepth(37));
       this.tweens.add({
         targets: arrow,
         y: arrow.y - 8,
@@ -856,31 +862,15 @@ export class WulandScene extends Phaser.Scene {
 
     const line = Phaser.Utils.Array.GetRandom(Array.from(WULAND_MERCHANT.speechLines));
 
-    this.merchantBubble?.destroy();
-    this.merchantBubble = this.add
-      .text(WULAND_MERCHANT.x + 34, WULAND_MERCHANT.y - 92, line, {
-        fontFamily: "Arial, sans-serif",
-        fontSize: "13px",
-        color: "#fff8e7",
-        backgroundColor: "rgba(27, 18, 24, 0.88)",
-        align: "center",
-        padding: { x: 8, y: 5 },
-        wordWrap: { width: 240, useAdvancedWrap: true }
-      })
-      .setOrigin(0.5)
-      .setDepth(88);
-
-    this.tweens.add({
-      targets: this.merchantBubble,
-      y: this.merchantBubble.y - 10,
-      alpha: 0,
-      delay: 2300,
-      duration: 700,
-      ease: "Sine.easeIn",
-      onComplete: () => {
-        this.merchantBubble?.destroy();
-        this.merchantBubble = undefined;
-      }
+    this.showAnchoredSpeechBubble({
+      bubbleId: `merchant:${WULAND_MERCHANT.id}`,
+      speakerType: "merchant",
+      speakerId: WULAND_MERCHANT.id,
+      mapId: WULAND_MAP_ID,
+      text: line,
+      expiresAt: Date.now() + 3600,
+      offsetX: 34,
+      offsetY: -84
     });
   }
 
@@ -1509,6 +1499,7 @@ export class WulandScene extends Phaser.Scene {
       avatar = {
         playerId: player.playerId,
         sprite,
+        heldItem: this.add.image(player.x, player.y, itemIconTextureKey("rock")).setDepth(61).setScale(0.56).setVisible(false),
         aura: this.add.circle(player.x, player.y, 35, 0xffffff, 0.13).setDepth(45).setVisible(false),
         hpBg: this.add.rectangle(player.x - 30, player.y - 75, 60, 6, 0x1f272a, 0.88).setOrigin(0, 0.5).setDepth(72),
         hpFill: this.add.rectangle(player.x - 30, player.y - 75, 60, 6, 0x69db7c, 1).setOrigin(0, 0.5).setDepth(73),
@@ -1538,6 +1529,13 @@ export class WulandScene extends Phaser.Scene {
         : "";
     const hpPercent = player.maxHp > 0 ? Phaser.Math.Clamp(player.hp / player.maxHp, 0, 1) : 0;
     const shieldPercent = player.maxHp > 0 ? Phaser.Math.Clamp(player.shield / player.maxHp, 0, 1) : 0;
+    const selectedItem = player.inventory[player.selectedHotbarSlot];
+    const selectedDefinition = selectedItem?.itemDefinitionId
+      ? ITEM_DEFINITIONS[selectedItem.itemDefinitionId]
+      : null;
+    const heldTexture = selectedDefinition?.iconAsset
+      ? itemIconTextureKey(selectedDefinition.itemDefinitionId)
+      : "";
 
     avatar.target.set(player.x, player.y);
     avatar.lastState = player;
@@ -1558,6 +1556,17 @@ export class WulandScene extends Phaser.Scene {
       .setFlipX(player.direction === "left")
       .setAlpha(player.sleeping || !player.online || player.defeated ? 0.58 : 1)
       .setTint(player.defeated ? 0xffb3b3 : player.sleeping || !player.online ? 0x9da6af : 0xffffff);
+    avatar.heldItem.setVisible(
+      Boolean(heldTexture) &&
+      this.textures.exists(heldTexture) &&
+      player.online &&
+      !player.sleeping &&
+      !player.defeated
+    );
+
+    if (avatar.heldItem.visible && heldTexture) {
+      avatar.heldItem.setTexture(heldTexture);
+    }
 
     if (isLocalPlayer) {
       avatar.sprite.setPosition(player.x, player.y);
@@ -1672,18 +1681,24 @@ export class WulandScene extends Phaser.Scene {
 
     if (!avatar) {
       const body = this.add
-        .rectangle(0, 0, 38, 30, 0x1f2c2e, 0.92)
+        .rectangle(0, 0, 42, 36, 0x1f2c2e, 0.9)
         .setStrokeStyle(2, 0xffe8a3, 0.9);
-      const iconLabel = this.add
-        .text(0, -2, definition.iconText, {
+      const icon = this.add
+        .image(0, -1, itemIconTextureKey(item.itemDefinitionId))
+        .setScale(0.54)
+        .setVisible(this.textures.exists(itemIconTextureKey(item.itemDefinitionId)));
+      const countLabel = this.add
+        .text(13, 11, "", {
           fontFamily: "Arial, sans-serif",
-          fontSize: "11px",
-          color: "#fff8e7",
-          fontStyle: "bold"
+          fontSize: "10px",
+          color: "#172224",
+          backgroundColor: "#fff3bf",
+          fontStyle: "bold",
+          padding: { x: 3, y: 1 }
         })
         .setOrigin(0.5);
       const nameLabel = this.add
-        .text(0, -28, definition.displayName, {
+        .text(0, -31, definition.displayName, {
           fontFamily: "Arial, sans-serif",
           fontSize: "11px",
           color: "#1b1c1d",
@@ -1691,13 +1706,14 @@ export class WulandScene extends Phaser.Scene {
           padding: { x: 5, y: 2 }
         })
         .setOrigin(0.5);
-      const container = this.add.container(item.x, item.y, [body, iconLabel, nameLabel]);
+      const container = this.add.container(item.x, item.y, [body, icon, countLabel, nameLabel]);
       container.setDepth(38);
       avatar = {
         droppedItemId: item.droppedItemId,
         container,
         body,
-        iconLabel,
+        icon,
+        countLabel,
         nameLabel,
         lastState: item
       };
@@ -1706,21 +1722,37 @@ export class WulandScene extends Phaser.Scene {
 
     avatar.lastState = item;
     avatar.container.setPosition(item.x, item.y);
-    avatar.iconLabel.setText(item.quantity > 1 ? `${definition.iconText} x${item.quantity}` : definition.iconText);
+    const iconKey = itemIconTextureKey(item.itemDefinitionId);
+    if (this.textures.exists(iconKey)) {
+      avatar.icon.setTexture(iconKey).setVisible(true);
+    } else {
+      avatar.icon.setVisible(false);
+    }
+    avatar.countLabel
+      .setText(item.quantity > 1 ? String(item.quantity) : "")
+      .setVisible(item.quantity > 1);
     avatar.nameLabel.setText(definition.displayName);
   }
 
   private renderNpc(npc: AmbientNpcNetworkState): void {
     const definition = npcDefinitionFor(npc.npcId);
-    const color = definition?.color ?? npcColor(npc.type);
-    const accentColor = definition?.accentColor ?? 0xfff3bf;
+    const textureKey = createCharacterTexture(this, npcCharacterProfile(npc));
     let avatar = this.npcAvatars.get(npc.npcId);
 
     if (!avatar) {
-      const body = this.add.circle(0, 0, 20, color, 0.96).setStrokeStyle(3, 0x162325, 0.8);
-      const accent = this.add.rectangle(0, -7, 30, 10, accentColor, 0.92);
+      const sprite = this.add.sprite(0, 0, textureKey).setScale(1.02);
+      const propLabel = this.add
+        .text(24, -7, npcPropLabel(npc.type), {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "9px",
+          color: "#172224",
+          backgroundColor: "#fff3bf",
+          fontStyle: "bold",
+          padding: { x: 4, y: 2 }
+        })
+        .setOrigin(0.5);
       const nameLabel = this.add
-        .text(0, -47, npc.displayName, {
+        .text(0, -57, npc.displayName, {
           fontFamily: "Arial, sans-serif",
           fontSize: "12px",
           color: "#fff8e7",
@@ -1728,41 +1760,44 @@ export class WulandScene extends Phaser.Scene {
           padding: { x: 6, y: 2 }
         })
         .setOrigin(0.5);
-      const speechLabel = this.add
-        .text(0, -76, "", {
-          fontFamily: "Arial, sans-serif",
-          fontSize: "12px",
-          color: "#172224",
-          backgroundColor: "#fff8e7",
-          align: "center",
-          padding: { x: 7, y: 4 },
-          wordWrap: { width: 210, useAdvancedWrap: true }
-        })
-        .setOrigin(0.5)
-        .setVisible(false);
-      const container = this.add.container(npc.x, npc.y, [body, accent, nameLabel, speechLabel]);
+      const container = this.add.container(npc.x, npc.y, [sprite, propLabel, nameLabel]);
       container.setDepth(48);
       avatar = {
         npcId: npc.npcId,
         container,
-        body,
-        accent,
+        sprite,
+        propLabel,
         nameLabel,
-        speechLabel,
         target: new Phaser.Math.Vector2(npc.x, npc.y),
         lastState: npc
       };
       this.npcAvatars.set(npc.npcId, avatar);
+    } else if (avatar.sprite.texture.key !== textureKey) {
+      avatar.sprite.setTexture(textureKey);
     }
 
     avatar.target.set(npc.x, npc.y);
     avatar.lastState = npc;
     avatar.nameLabel.setText(npc.displayName);
-    avatar.body.setFillStyle(color, 0.96);
-    avatar.accent.setFillStyle(accentColor, 0.92);
-    avatar.speechLabel
-      .setText(npc.speechText)
-      .setVisible(Boolean(npc.speechText) && npc.speechUntil > Date.now());
+    avatar.propLabel.setText(npcPropLabel(npc.type));
+    avatar.sprite
+      .setFlipX(npc.direction === "left")
+      .setAlpha(definition ? 1 : 0.95);
+
+    if (npc.speechText && npc.speechUntil > Date.now()) {
+      this.showAnchoredSpeechBubble({
+        bubbleId: `npc:${npc.npcId}`,
+        speakerType: "npc",
+        speakerId: npc.npcId,
+        mapId: npc.mapId,
+        text: npc.speechText,
+        expiresAt: npc.speechUntil,
+        offsetX: 0,
+        offsetY: -80
+      });
+    } else {
+      this.destroySpeechBubble(`npc:${npc.npcId}`);
+    }
   }
 
   private updateAvatarPositions(delta: number): void {
@@ -1793,10 +1828,6 @@ export class WulandScene extends Phaser.Scene {
     this.npcAvatars.forEach((avatar) => {
       avatar.container.x = Phaser.Math.Linear(avatar.container.x, avatar.target.x, interpolation);
       avatar.container.y = Phaser.Math.Linear(avatar.container.y, avatar.target.y, interpolation);
-      avatar.speechLabel.setVisible(
-        Boolean(avatar.lastState.speechText) &&
-        avatar.lastState.speechUntil > Date.now()
-      );
     });
   }
 
@@ -1815,6 +1846,13 @@ export class WulandScene extends Phaser.Scene {
     avatar.classLabel.setPosition(x, y - 47);
     avatar.statusLabel.setPosition(x, y - 28);
     avatar.statusLabel.setVisible(sleeping || defeated);
+
+    const heldOffset = heldItemOffset(avatar.lastState.direction);
+    avatar.heldItem
+      .setPosition(x + heldOffset.x, y + heldOffset.y)
+      .setDepth(avatar.lastState.direction === "up" ? 49 : 63)
+      .setAngle(heldOffset.angle)
+      .setFlipX(avatar.lastState.direction === "left");
   }
 
   private updateInteractionContext(player: PlayerNetworkState): void {
@@ -1969,20 +2007,16 @@ export class WulandScene extends Phaser.Scene {
       return;
     }
 
-    if (event.sourceType === "player") {
-      const avatar = this.avatars.get(event.sourceId);
-
-      if (avatar) {
-        this.showSpeechBubbleAt(avatar.sprite.x, avatar.sprite.y - 96, event.text);
-      }
-      return;
-    }
-
-    const npc = this.npcAvatars.get(event.sourceId);
-
-    if (npc) {
-      this.showSpeechBubbleAt(npc.container.x, npc.container.y - 70, event.text);
-    }
+    this.showAnchoredSpeechBubble({
+      bubbleId: `${event.sourceType}:${event.sourceId}`,
+      speakerType: event.sourceType,
+      speakerId: event.sourceId,
+      mapId: event.mapId,
+      text: event.text,
+      expiresAt: Date.now() + 3600,
+      offsetX: 0,
+      offsetY: event.sourceType === "player" ? -95 : -80
+    });
   }
 
   private handleForceDeleted(event: ForceDeletedEvent): void {
@@ -2028,9 +2062,37 @@ export class WulandScene extends Phaser.Scene {
     });
   }
 
-  private showSpeechBubbleAt(x: number, y: number, text: string): void {
-    const bubble = this.add
-      .text(x, y, text.slice(0, CHAT_MAX_MESSAGE_LENGTH), {
+  private showAnchoredSpeechBubble(options: {
+    bubbleId: string;
+    speakerType: SpeechSpeakerType;
+    speakerId: string;
+    mapId: WulandMapId;
+    text: string;
+    expiresAt: number;
+    offsetX: number;
+    offsetY: number;
+  }): void {
+    const text = options.text.slice(0, CHAT_MAX_MESSAGE_LENGTH);
+
+    if (!text) {
+      this.destroySpeechBubble(options.bubbleId);
+      return;
+    }
+
+    const existing = this.speechBubbles.get(options.bubbleId);
+
+    if (existing) {
+      existing.label.setText(text).setAlpha(1);
+      existing.expiresAt = options.expiresAt;
+      existing.mapId = options.mapId;
+      existing.offsetX = options.offsetX;
+      existing.offsetY = options.offsetY;
+      this.updateSpeechBubblePosition(existing);
+      return;
+    }
+
+    const label = this.add
+      .text(0, 0, text, {
         fontFamily: "Arial, sans-serif",
         fontSize: "13px",
         color: "#172224",
@@ -2042,15 +2104,76 @@ export class WulandScene extends Phaser.Scene {
       .setOrigin(0.5, 1)
       .setDepth(120);
 
-    this.tweens.add({
-      targets: bubble,
-      y: bubble.y - 18,
-      alpha: 0,
-      delay: 2600,
-      duration: 650,
-      ease: "Sine.easeIn",
-      onComplete: () => bubble.destroy()
-    });
+    const bubble: SpeechBubbleAvatar = {
+      ...options,
+      label
+    };
+    this.speechBubbles.set(options.bubbleId, bubble);
+    this.updateSpeechBubblePosition(bubble);
+  }
+
+  private updateSpeechBubbles(): void {
+    const now = Date.now();
+
+    for (const [bubbleId, bubble] of this.speechBubbles) {
+      if (bubble.mapId !== this.currentMapId || bubble.expiresAt <= now) {
+        this.destroySpeechBubble(bubbleId);
+        continue;
+      }
+
+      if (!this.updateSpeechBubblePosition(bubble)) {
+        this.destroySpeechBubble(bubbleId);
+        continue;
+      }
+
+      const remaining = bubble.expiresAt - now;
+      bubble.label.setAlpha(remaining < 650 ? Phaser.Math.Clamp(remaining / 650, 0, 1) : 1);
+    }
+  }
+
+  private updateSpeechBubblePosition(bubble: SpeechBubbleAvatar): boolean {
+    const position = this.speechSpeakerPosition(bubble);
+
+    if (!position) {
+      return false;
+    }
+
+    bubble.label.setPosition(position.x + bubble.offsetX, position.y + bubble.offsetY);
+    return true;
+  }
+
+  private speechSpeakerPosition(bubble: SpeechBubbleAvatar): { x: number; y: number } | null {
+    if (bubble.speakerType === "player") {
+      const avatar = this.avatars.get(bubble.speakerId);
+      return avatar ? { x: avatar.sprite.x, y: avatar.sprite.y } : null;
+    }
+
+    if (bubble.speakerType === "npc") {
+      const avatar = this.npcAvatars.get(bubble.speakerId);
+      return avatar ? { x: avatar.container.x, y: avatar.container.y } : null;
+    }
+
+    if (bubble.speakerId === WULAND_MERCHANT.id && this.currentMapId === WULAND_MAP_ID) {
+      return { x: WULAND_MERCHANT.x, y: WULAND_MERCHANT.y };
+    }
+
+    return null;
+  }
+
+  private destroySpeechBubble(bubbleId: string): void {
+    const bubble = this.speechBubbles.get(bubbleId);
+
+    if (!bubble) {
+      return;
+    }
+
+    bubble.label.destroy();
+    this.speechBubbles.delete(bubbleId);
+  }
+
+  private destroyAllSpeechBubbles(): void {
+    this.speechBubbles.forEach((bubble) => bubble.label.destroy());
+    this.speechBubbles.clear();
   }
 
   private showAttackEffect(event: CombatEvent): void {
@@ -2301,7 +2424,9 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private destroyAvatar(avatar: PlayerAvatar): void {
+    this.destroySpeechBubble(`player:${avatar.playerId}`);
     avatar.sprite.destroy();
+    avatar.heldItem.destroy();
     avatar.aura.destroy();
     avatar.hpBg.destroy();
     avatar.hpFill.destroy();
@@ -2321,6 +2446,7 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private destroyNpcAvatar(avatar: NpcAvatar): void {
+    this.destroySpeechBubble(`npc:${avatar.npcId}`);
     avatar.container.destroy(true);
   }
 
@@ -2589,20 +2715,132 @@ const interiorPaletteForMap = (
 const npcDefinitionFor = (npcId: string) =>
   WULAND_AMBIENT_NPCS.find((npc) => npc.npcId === npcId);
 
-const npcColor = (type: AmbientNpcNetworkState["type"]): number => {
-  if (type === "cleaning-lady") {
-    return 0x5f7f8f;
+const itemIconTextureKey = (itemDefinitionId: ItemDefinitionId): string =>
+  `item-icon-${itemDefinitionId}`;
+
+const heldItemOffset = (
+  direction: Direction
+): { x: number; y: number; angle: number } => {
+  if (direction === "left") {
+    return { x: -23, y: -18, angle: -28 };
   }
 
-  if (type === "security-guard") {
-    return 0x253449;
+  if (direction === "right") {
+    return { x: 23, y: -18, angle: 28 };
   }
 
-  if (type === "hr-specialist") {
-    return 0x8b5cf6;
+  if (direction === "up") {
+    return { x: 14, y: -29, angle: -8 };
   }
 
-  return 0x2f9e44;
+  return { x: 21, y: -16, angle: 18 };
+};
+
+const npcCharacterProfile = (npc: AmbientNpcNetworkState): CharacterTextureProfile => {
+  const visual = NPC_CHARACTER_VISUALS[npc.type] ?? NPC_CHARACTER_VISUALS.intern;
+
+  return {
+    playerId: `npc-${npc.npcId}`,
+    class: visual.class,
+    gender: visual.gender,
+    cosmetics: visual.cosmetics
+  };
+};
+
+const npcPropLabel = (type: AmbientNpcNetworkState["type"]): string =>
+  NPC_PROP_LABELS[type] ?? "NPC";
+
+const NPC_CHARACTER_VISUALS = {
+  "cleaning-lady": {
+    class: "data analyst",
+    gender: "female",
+    cosmetics: {
+      ...DEFAULT_COSMETICS,
+      skinTone: "golden tan",
+      hairStyle: "bob",
+      hairColor: "brown",
+      outfitColor: "white",
+      accessory: "hat",
+      spriteVariant: "classic"
+    }
+  },
+  "security-guard": {
+    class: "senior developer",
+    gender: "male",
+    cosmetics: {
+      ...DEFAULT_COSMETICS,
+      skinTone: "deep brown",
+      hairStyle: "short",
+      hairColor: "black",
+      outfitColor: "blue",
+      accessory: "badge",
+      spriteVariant: "scout"
+    }
+  },
+  "hr-specialist": {
+    class: "business analyst",
+    gender: "female",
+    cosmetics: {
+      ...DEFAULT_COSMETICS,
+      skinTone: "warm ivory",
+      hairStyle: "bob",
+      hairColor: "blonde",
+      outfitColor: "green",
+      accessory: "glasses",
+      spriteVariant: "classic"
+    }
+  },
+  intern: {
+    class: "developer",
+    gender: "male",
+    cosmetics: {
+      ...DEFAULT_COSMETICS,
+      skinTone: "warm ivory",
+      hairStyle: "spiky",
+      hairColor: "red",
+      outfitColor: "teal",
+      accessory: "headset",
+      spriteVariant: "runner"
+    }
+  },
+  "office-manager": {
+    class: "product owner",
+    gender: "female",
+    cosmetics: {
+      ...DEFAULT_COSMETICS,
+      skinTone: "cool umber",
+      hairStyle: "curly",
+      hairColor: "silver",
+      outfitColor: "red",
+      accessory: "glasses",
+      spriteVariant: "classic"
+    }
+  },
+  "lost-client": {
+    class: "product owner",
+    gender: "male",
+    cosmetics: {
+      ...DEFAULT_COSMETICS,
+      skinTone: "golden tan",
+      hairStyle: "short",
+      hairColor: "brown",
+      outfitColor: "green",
+      accessory: "none",
+      spriteVariant: "scout"
+    }
+  }
+} as const satisfies Record<
+  AmbientNpcNetworkState["type"],
+  Omit<CharacterTextureProfile, "playerId">
+>;
+
+const NPC_PROP_LABELS: Record<AmbientNpcNetworkState["type"], string> = {
+  "cleaning-lady": "MOP",
+  "security-guard": "ID",
+  "hr-specialist": "HR",
+  intern: "INT",
+  "office-manager": "OPS",
+  "lost-client": "?"
 };
 
 const distanceBetween = (

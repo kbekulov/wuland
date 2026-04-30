@@ -862,9 +862,24 @@ label span,
   box-shadow: 0 0 0 2px rgba(255, 243, 191, 0.22);
 }
 
-.hotbar-slot strong {
+.item-icon-image,
+.item-icon-fallback {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.item-icon-fallback {
+  display: grid;
+  place-items: center;
   min-height: 18px;
-  font-size: 13px;
+  color: #fff3bf;
+  font-size: 12px;
+  font-weight: 900;
   line-height: 1;
 }
 
@@ -1105,6 +1120,12 @@ label span,
   background: rgba(255, 243, 191, 0.16);
   color: #fff3bf;
   font-size: 13px;
+}
+
+.merchant-icon .item-icon-image,
+.merchant-icon .item-icon-fallback {
+  width: 42px;
+  height: 42px;
 }
 
 .merchant-item h3 {

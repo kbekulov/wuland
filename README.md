@@ -1,6 +1,6 @@
 # WULAND
 
-WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 10 keeps multiplayer movement, sleeping players, multi-map interiors, enemies, server-authoritative combat, shared weapons, inventory, merchant shopping, cakes, dropped items, NPCs, persistent chat, Data Analyst, and God Mode, then fixes merchant buying with server-authoritative money and inventory updates.
+WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 11 keeps multiplayer movement, sleeping players, multi-map interiors, enemies, server-authoritative combat, shared weapons, inventory, merchant shopping, cakes, dropped items, NPCs, persistent chat, Data Analyst, and God Mode, then polishes item icons, NPC visuals, speech bubbles, and doorway labels.
 
 ## Local Development
 
@@ -115,6 +115,8 @@ Weapons:
 - Magic Wand: longer-range magic projectile with medium damage.
 - Rock: thrown blunt projectile with lower damage.
 
+Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current icons use CC0 assets from Kenney and OpenGameArt, with credits in `CREDITS.md` and `client/public/assets/CREDITS.md`.
+
 ## Merchant and Cakes
 
 The mysterious Odd Merchant stands near the main WULAND village path around the center-left of town. Stand near the merchant and press `F` to open the shop. On mobile, use the Interact button.
@@ -145,18 +147,22 @@ For temporary live-world cleanup, the server also supports:
 
 ## NPCs And Chat
 
-Ambient NPCs wander slowly around assigned maps, avoid obvious obstacles, and occasionally show speech bubbles. Current NPCs include:
+Ambient NPCs are rendered as simple human-shaped characters with distinct outfits and small job props. They wander slowly around assigned maps, avoid obvious obstacles, and occasionally show speech bubbles. Current NPCs include:
 
 - Cleaning Lady in Bathroom and Kitchen.
 - Security Guard in WULAND and near the RPA CoE entrance.
 - HR Specialist in BusyBeet and Din Break.
 - Intern in WULAND.
 
-The chat window is visible during gameplay and can be minimized. Chat is global in the chat window, with off-map messages labeled by map name. Speech bubbles only appear above players and NPCs in the same map. Messages are trimmed, capped at 140 characters, and rate-limited to about one message per second.
+The chat window is visible during gameplay and can be minimized. Chat is global in the chat window, with off-map messages labeled by map name. Speech bubbles only appear above players, NPCs, and the merchant in the same map. They stay anchored to the speaker while the speaker moves, then fade out. Messages are trimmed, capped at 140 characters, and rate-limited to about one message per second.
 
 The server keeps and persists the latest 100 chat messages in JSON storage. Returning players receive recent chat history when they join, and chat history survives server restart if `server/data/wuland-players.json` remains available. The client safely renders chat text as text, not HTML.
 
 The local player sidebar is compact by default on desktop and expands while hovered, keeping Help, God Mode, Edit, player name, class, location, and HP visible in the minimized state.
+
+## Doorways
+
+Each overworld building keeps one permanent building title and one animated doorway arrow. Permanent `Enter [Building]` arrow labels were removed; the contextual `Press F to enter...` or `Press F to exit to WULAND` prompt appears in the HUD only when the player is near a doorway.
 
 ## God Mode
 
@@ -267,3 +273,5 @@ Phase 8 adds ambient NPCs, global chat with same-map speech bubbles, and prototy
 Phase 9 adds persistent server chat history, the Data Analyst class, and safer JSON persistence migrations that skip or repair malformed records instead of discarding the whole store.
 
 Phase 10 fixes merchant buying, adds persisted prototype money, item prices, purchase logs, and stricter inventory repair for bought, dropped, picked-up, and reconnected items.
+
+Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-item sprites, human-shaped NPCs, anchored speech bubbles, and cleaner doorway labels.

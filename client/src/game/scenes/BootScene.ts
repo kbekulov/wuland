@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { ITEM_DEFINITIONS } from "@wuland/shared";
 import { loadPlayerProfile, loadProgress } from "../../persistence/localSave.ts";
 
 export class BootScene extends Phaser.Scene {
@@ -10,6 +11,7 @@ export class BootScene extends Phaser.Scene {
     this.createPlaceholderTexture("tile-grass", 0x77b65d, 0x6fae54);
     this.createPlaceholderTexture("tile-grass-dark", 0x5f9f4b, 0x548d43);
     this.createPlaceholderTexture("tile-dirt", 0xb89058, 0xa47b47);
+    this.loadItemIcons();
   }
 
   create(): void {
@@ -39,4 +41,16 @@ export class BootScene extends Phaser.Scene {
     graphics.generateTexture(key, 32, 32);
     graphics.destroy();
   }
+
+  private loadItemIcons(): void {
+    Object.values(ITEM_DEFINITIONS).forEach((definition) => {
+      if (!definition.iconAsset || this.textures.exists(itemIconTextureKey(definition.itemDefinitionId))) {
+        return;
+      }
+
+      this.load.image(itemIconTextureKey(definition.itemDefinitionId), definition.iconAsset);
+    });
+  }
 }
+
+const itemIconTextureKey = (itemDefinitionId: string): string => `item-icon-${itemDefinitionId}`;

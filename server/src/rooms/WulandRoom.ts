@@ -70,6 +70,7 @@ import {
   type PlayerNetworkState,
   type PlayerProfile,
   type PortalDefinition,
+  type ShopResultEvent,
   type SpeechBubbleEvent,
   type WorldPosition,
   type WulandMapId,
@@ -374,15 +375,24 @@ export class WulandRoom extends Room<WulandRoomState> {
       this.pickupItem(playerId, (message as { droppedItemId?: string } | null | undefined)?.droppedItemId);
     });
 
-    this.onMessage("buyItem", (client, message: unknown) => {
+    const handleBuyItemMessage = (client: Client, message: unknown) => {
       const playerId = this.sessionToPlayerId.get(client.sessionId);
 
       if (!playerId || !isBuyItemRequest(message)) {
+        client.send("shopResult", {
+          ok: false,
+          message: "Invalid purchase request"
+        } satisfies ShopResultEvent);
         return;
       }
 
-      this.buyItem(playerId, message.itemDefinitionId);
-    });
+      client.send("shopResult", this.buyItem(playerId, message.itemDefinitionId));
+    };
+
+    this.onMessage("buyItem", handleBuyItemMessage);
+    this.onMessage("purchaseItem", handleBuyItemMessage);
+    this.onMessage("buyMerchantItem", handleBuyItemMessage);
+    this.onMessage("purchaseMerchantItem", handleBuyItemMessage);
 
     this.onMessage("giftSelectedItem", (client, message: unknown) => {
       const playerId = this.sessionToPlayerId.get(client.sessionId);
@@ -1329,7 +1339,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.updateCounts();
   }
 
-  private buyItem(playerId: string, itemDefinitionId: ItemDefinitionId): void {
+  private buyItem(playerId: string, itemDefinitionId: ItemDefinitionId): ShopResultEvent {
     const player = this.state.players.get(playerId);
     const stockItem = WULAND_MERCHANT_STOCK.find((item) => item.itemDefinitionId === itemDefinitionId);
     const itemDefinition = ITEM_DEFINITIONS[itemDefinitionId];
@@ -1339,19 +1349,33 @@ export class WulandRoom extends Room<WulandRoomState> {
 
     if (!player || !player.online || player.sleeping || player.defeated) {
       console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=player-unavailable`);
-      return;
+      return {
+        ok: false,
+        itemDefinitionId,
+        message: "Player cannot shop right now"
+      };
     }
 
     if (!stockItem || !itemDefinition) {
       console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=item-not-for-sale`);
       this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Item is not for sale", "#ffd8a8");
-      return;
+      return {
+        ok: false,
+        itemDefinitionId,
+        message: "Item is not for sale",
+        money: player.money
+      };
     }
 
     if (!isNearMerchant(player)) {
       console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=too-far`);
       this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Shop is too far away", "#ffd8a8");
-      return;
+      return {
+        ok: false,
+        itemDefinitionId,
+        message: "Shop is too far away",
+        money: player.money
+      };
     }
 
     player.money = normalizeMoney(player.money);
@@ -1359,7 +1383,12 @@ export class WulandRoom extends Room<WulandRoomState> {
     if (player.money < stockItem.price) {
       console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=not-enough-money money=${player.money} price=${stockItem.price}`);
       this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Not enough money", "#ffd8a8");
-      return;
+      return {
+        ok: false,
+        itemDefinitionId,
+        message: "Not enough money",
+        money: player.money
+      };
     }
 
     const item = createInventoryItem(itemDefinitionId, player.playerId);
@@ -1367,7 +1396,12 @@ export class WulandRoom extends Room<WulandRoomState> {
     if (!addItemToInventory(player, item)) {
       console.warn(`${PURCHASE_LOG_PREFIX} failed player=${playerLabel} item=${itemDefinitionId} reason=inventory-full`);
       this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Inventory full", "#ffd8a8");
-      return;
+      return {
+        ok: false,
+        itemDefinitionId,
+        message: "Inventory full",
+        money: player.money
+      };
     }
 
     player.money -= stockItem.price;
@@ -1384,6 +1418,12 @@ export class WulandRoom extends Room<WulandRoomState> {
       "#fff3bf",
       itemDefinitionId
     );
+    return {
+      ok: true,
+      itemDefinitionId,
+      message: `Bought ${itemDefinition.displayName}`,
+      money: player.money
+    };
   }
 
   private giftSelectedItem(playerId: string, requestedTargetPlayerId?: string): void {

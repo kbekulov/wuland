@@ -36,6 +36,7 @@ import {
   type PlayerNetworkState,
   type PlayerProfile,
   type PortalDefinition,
+  type ShopResultEvent,
   type SpeechBubbleEvent,
   type WulandMapId
 } from "@wuland/shared";
@@ -407,6 +408,7 @@ export class WulandScene extends Phaser.Scene {
       room.onMessage("chatMessage", (message: ChatMessage) => this.handleChatMessage(message));
       room.onMessage("speechBubble", (event: SpeechBubbleEvent) => this.handleSpeechBubble(event));
       room.onMessage("forceDeleted", (event: ForceDeletedEvent) => this.handleForceDeleted(event));
+      room.onMessage("shopResult", (event: ShopResultEvent) => this.handleShopResult(event));
       room.onLeave((code, reason) => this.handleRoomLeave(code, reason));
       room.onError((code, message) => this.handleRoomError(code, message));
       this.handleRoomState(room.state);
@@ -1124,6 +1126,7 @@ export class WulandScene extends Phaser.Scene {
 
   private buyMerchantItem(itemDefinitionId: ItemDefinitionId): void {
     if (!this.canSendGameplayAction("buy item")) {
+      this.game.events.emit("wuland:shopFeedback", "Cannot buy: server is not ready");
       return;
     }
 
@@ -1992,6 +1995,14 @@ export class WulandScene extends Phaser.Scene {
     if (enemy) {
       this.flashEnemy(enemy, event.type === "mark" ? 0xfacc15 : 0xffffff);
     }
+  }
+
+  private handleShopResult(event: ShopResultEvent): void {
+    if (!this.sceneActive) {
+      return;
+    }
+
+    this.game.events.emit("wuland:shopFeedback", event.message);
   }
 
   private handleChatMessage(message: ChatMessage): void {

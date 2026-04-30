@@ -134,7 +134,7 @@ The merchant sells:
 - Cheese Cake: 1,800 coins
 - Mystery Cake: 2,500 coins
 
-Buying is server-authoritative: click `Buy`, the server validates the item, money, and inventory space, subtracts the price, and adds the item to the authoritative hotbar. If the inventory is full, the shop shows `Inventory full` and the purchase is blocked.
+Buying is server-authoritative: click `Buy`, the server validates the item, money, and inventory space, subtracts the price, and adds the item to the authoritative hotbar. The shop now shows direct purchase feedback from the server, such as `Bought Sword`, `Inventory full`, or `Shop is too far away`. If the inventory is full, the purchase is blocked.
 
 Cakes are consumables. Select a cake with `1` through `9`, then press `E` to eat it and heal. Stand near another online player and press `G` to gift the selected cake. Cakes can also be dragged out of the hotbar to drop them on the map, then another player can pick them up with `F`.
 

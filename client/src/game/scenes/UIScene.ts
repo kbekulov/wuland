@@ -72,6 +72,7 @@ export class UIScene extends Phaser.Scene {
   private chatCollapsed = false;
   private godModeCode = "";
   private shopFeedback = "";
+  private lastBuyIntent: { itemDefinitionId: ItemDefinitionId; sentAt: number } | null = null;
 
   constructor() {
     super("UIScene");
@@ -232,7 +233,10 @@ export class UIScene extends Phaser.Scene {
       ?.addEventListener("click", () => this.openMerchantShop(false));
     this.root
       .querySelector("[data-merchant-stock]")
-      ?.addEventListener("click", (event) => this.handleShopClick(event));
+      ?.addEventListener("pointerup", (event) => this.handleShopBuyIntent(event));
+    this.root
+      .querySelector("[data-merchant-stock]")
+      ?.addEventListener("click", (event) => this.handleShopBuyIntent(event));
     this.root
       .querySelector("[data-hotbar-slots]")
       ?.addEventListener("pointerdown", (event) => this.handleHotbarPointerDown(event as PointerEvent));
@@ -586,14 +590,34 @@ export class UIScene extends Phaser.Scene {
     list.scrollTop = list.scrollHeight;
   }
 
-  private handleShopClick(event: Event): void {
+  private handleShopBuyIntent(event: Event): void {
     const target = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-buy-item]");
     const itemDefinitionId = target?.dataset.buyItem as ItemDefinitionId | undefined;
+
+    if (target) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
 
     if (!itemDefinitionId || !(itemDefinitionId in ITEM_DEFINITIONS)) {
       return;
     }
 
+    if (target?.disabled) {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      this.lastBuyIntent?.itemDefinitionId === itemDefinitionId &&
+      now - this.lastBuyIntent.sentAt < 350
+    ) {
+      return;
+    }
+
+    this.lastBuyIntent = { itemDefinitionId, sentAt: now };
+    this.shopFeedback = `Buying ${ITEM_DEFINITIONS[itemDefinitionId].displayName}...`;
+    this.render();
     this.game.events.emit("wuland:buyMerchantItem", itemDefinitionId);
   }
 

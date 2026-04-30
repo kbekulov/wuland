@@ -88,7 +88,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 11;
+export const WULAND_PROTOCOL_VERSION = 12;
 export const PLAYER_STARTING_MONEY = 999_999;
 
 export const GENDERS = ["male", "female"] as const;
@@ -1238,6 +1238,13 @@ export interface PickupItemRequest {
 
 export interface BuyItemRequest {
   itemDefinitionId: ItemDefinitionId;
+}
+
+export interface ShopResultEvent {
+  ok: boolean;
+  itemDefinitionId?: ItemDefinitionId;
+  message: string;
+  money?: number;
 }
 
 export interface GiftItemRequest {

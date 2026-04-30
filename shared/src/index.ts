@@ -88,7 +88,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 12;
+export const WULAND_PROTOCOL_VERSION = 13;
 export const PLAYER_STARTING_MONEY = 999_999;
 
 export const GENDERS = ["male", "female"] as const;
@@ -638,6 +638,7 @@ export type CombatEventType =
   | "buff"
   | "mark"
   | "enemy-defeated"
+  | "npc-defeated"
   | "player-defeated"
   | "delete"
   | "respawn";
@@ -648,6 +649,8 @@ export const CHAT_HISTORY_LIMIT = 100;
 
 export const PLAYER_MAX_HP = 120;
 export const PLAYER_RESPAWN_MS = 4200;
+export const AMBIENT_NPC_MAX_HP = 80;
+export const AMBIENT_NPC_RESPAWN_MS = 4200;
 
 export interface EnemyDefinition {
   type: EnemyType;
@@ -1066,6 +1069,10 @@ export interface AmbientNpcNetworkState {
   spawnX: number;
   spawnY: number;
   wanderRadius: number;
+  hp: number;
+  maxHp: number;
+  defeated: boolean;
+  respawnAt: number;
   direction: Direction;
   moving: boolean;
   speechText: string;
@@ -1349,6 +1356,8 @@ export interface EnemyNetworkState {
 
 export interface CombatRequest {
   targetEnemyId?: string;
+  targetNpcId?: string;
+  targetPlayerId?: string;
   direction?: Direction;
 }
 
@@ -1608,6 +1617,10 @@ export const isAmbientNpcNetworkState = (value: unknown): value is AmbientNpcNet
   isFiniteNumber(value.spawnY) &&
   isFiniteNumber(value.wanderRadius) &&
   value.wanderRadius >= 0 &&
+  (value.hp === undefined || (isFiniteNumber(value.hp) && value.hp >= 0)) &&
+  (value.maxHp === undefined || (isFiniteNumber(value.maxHp) && value.maxHp > 0)) &&
+  (value.defeated === undefined || typeof value.defeated === "boolean") &&
+  (value.respawnAt === undefined || isFiniteNumber(value.respawnAt)) &&
   isDirection(value.direction) &&
   typeof value.moving === "boolean" &&
   typeof value.speechText === "string" &&
@@ -1642,6 +1655,8 @@ export const isCombatRequest = (value: unknown): value is CombatRequest => {
 
   return (
     (value.targetEnemyId === undefined || typeof value.targetEnemyId === "string") &&
+    (value.targetNpcId === undefined || typeof value.targetNpcId === "string") &&
+    (value.targetPlayerId === undefined || typeof value.targetPlayerId === "string") &&
     (value.direction === undefined || isDirection(value.direction))
   );
 };

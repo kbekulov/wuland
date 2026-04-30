@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import {
   BUILDING_NAMES,
   CHAT_MAX_MESSAGE_LENGTH,
+  AMBIENT_NPC_MAX_HP,
   CLASS_METADATA,
   DEFAULT_COSMETICS,
   ENEMY_DEFINITIONS,
@@ -25,6 +26,7 @@ import {
   type ChatMessage,
   type BuildingName,
   type CombatEvent,
+  type CombatRequest,
   type Direction,
   type DroppedItemNetworkState,
   type EnemyNetworkState,
@@ -84,6 +86,7 @@ interface PlayerAvatar {
   playerId: string;
   sprite: Phaser.GameObjects.Sprite;
   heldItem: Phaser.GameObjects.Image;
+  selectionRing: Phaser.GameObjects.Arc;
   aura: Phaser.GameObjects.Arc;
   hpBg: Phaser.GameObjects.Rectangle;
   hpFill: Phaser.GameObjects.Rectangle;
@@ -124,8 +127,12 @@ interface NpcAvatar {
   npcId: string;
   container: Phaser.GameObjects.Container;
   sprite: Phaser.GameObjects.Sprite;
+  selectionRing: Phaser.GameObjects.Arc;
+  hpBg: Phaser.GameObjects.Rectangle;
+  hpFill: Phaser.GameObjects.Rectangle;
   propLabel: Phaser.GameObjects.Text;
   nameLabel: Phaser.GameObjects.Text;
+  statusLabel: Phaser.GameObjects.Text;
   target: Phaser.Math.Vector2;
   lastState: AmbientNpcNetworkState;
 }
@@ -237,6 +244,8 @@ export class WulandScene extends Phaser.Scene {
   private godModeActive = false;
   private godModeCode = "";
   private selectedEnemyId = "";
+  private selectedNpcId = "";
+  private selectedPlayerId = "";
   private virtualInput: MovementInput = { ...ZERO_INPUT };
   private clickTarget?: Phaser.Math.Vector2;
   private destinationMarker?: Phaser.GameObjects.Arc;
@@ -282,6 +291,8 @@ export class WulandScene extends Phaser.Scene {
     this.latestDroppedItems.clear();
     this.latestNpcs.clear();
     this.selectedEnemyId = "";
+    this.selectedNpcId = "";
+    this.selectedPlayerId = "";
     this.godModeActive = false;
     this.godModeCode = "";
     this.virtualInput = { ...ZERO_INPUT };
@@ -1072,12 +1083,12 @@ export class WulandScene extends Phaser.Scene {
     }
   }
 
-  private sendWeaponAttack(targetEnemyId = this.selectedEnemyId): void {
+  private sendWeaponAttack(): void {
     if (!this.canSendGameplayAction("attack")) {
       return;
     }
 
-    const request = this.buildCombatRequest(targetEnemyId);
+    const request = this.buildCombatRequest();
     this.room?.send("attack", request);
   }
 
@@ -1198,12 +1209,22 @@ export class WulandScene extends Phaser.Scene {
     });
   }
 
-  private buildCombatRequest(targetEnemyId: string): { targetEnemyId?: string; direction: Direction } {
+  private buildCombatRequest(): CombatRequest {
     const localPlayer = this.latestPlayers.get(this.profile.playerId);
-    const enemy = targetEnemyId ? this.latestEnemies.get(targetEnemyId) : undefined;
+    const enemy = this.selectedEnemyId ? this.latestEnemies.get(this.selectedEnemyId) : undefined;
+    const npc = this.selectedNpcId ? this.latestNpcs.get(this.selectedNpcId) : undefined;
+    const targetPlayer = this.selectedPlayerId ? this.latestPlayers.get(this.selectedPlayerId) : undefined;
 
     return {
-      targetEnemyId: enemy?.alive ? targetEnemyId : undefined,
+      targetEnemyId: enemy?.alive ? this.selectedEnemyId : undefined,
+      targetNpcId: npc && !npc.defeated && npc.hp > 0 ? this.selectedNpcId : undefined,
+      targetPlayerId:
+        targetPlayer &&
+        targetPlayer.playerId !== this.profile.playerId &&
+        !targetPlayer.defeated &&
+        targetPlayer.hp > 0
+          ? this.selectedPlayerId
+          : undefined,
       direction: localPlayer?.direction ?? "down"
     };
   }
@@ -1221,14 +1242,30 @@ export class WulandScene extends Phaser.Scene {
 
     const enemy = this.enemyAtWorldPoint(worldPoint.x, worldPoint.y);
 
-    if (!enemy) {
-      this.setClickTarget(worldPoint.x, worldPoint.y);
+    if (enemy) {
+      this.selectCombatTarget("enemy", enemy.enemyId);
+      this.showFloatingText(enemy.x, enemy.y, "target", "#fff3bf");
       return;
     }
 
-    this.selectedEnemyId = enemy.enemyId;
-    this.refreshEnemySelection();
-    this.showFloatingText(enemy.x, enemy.y, "target", "#fff3bf");
+    const npc = this.npcAtWorldPoint(worldPoint.x, worldPoint.y);
+
+    if (npc) {
+      this.selectCombatTarget("npc", npc.npcId);
+      this.showFloatingText(npc.x, npc.y, "target", "#fff3bf");
+      return;
+    }
+
+    const player = this.playerAtWorldPoint(worldPoint.x, worldPoint.y);
+
+    if (player && player.playerId !== this.profile.playerId) {
+      this.selectCombatTarget("player", player.playerId);
+      this.showFloatingText(player.x, player.y, "target", "#fff3bf");
+      return;
+    }
+
+    this.selectCombatTarget();
+    this.setClickTarget(worldPoint.x, worldPoint.y);
   }
 
   private setClickTarget(x: number, y: number): void {
@@ -1369,6 +1406,8 @@ export class WulandScene extends Phaser.Scene {
     if (activeMapId !== this.currentMapId) {
       this.clearClickTarget(true);
       this.selectedEnemyId = "";
+      this.selectedNpcId = "";
+      this.selectedPlayerId = "";
       this.drawCurrentMap(activeMapId);
       this.showMapTransition();
     }
@@ -1503,6 +1542,7 @@ export class WulandScene extends Phaser.Scene {
         playerId: player.playerId,
         sprite,
         heldItem: this.add.image(player.x, player.y, itemIconTextureKey("rock")).setDepth(61).setScale(0.56).setVisible(false),
+        selectionRing: this.add.circle(player.x, player.y + 4, 31, 0xffffff, 0).setStrokeStyle(3, 0xfff3bf, 1).setDepth(46).setVisible(false),
         aura: this.add.circle(player.x, player.y, 35, 0xffffff, 0.13).setDepth(45).setVisible(false),
         hpBg: this.add.rectangle(player.x - 30, player.y - 75, 60, 6, 0x1f272a, 0.88).setOrigin(0, 0.5).setDepth(72),
         hpFill: this.add.rectangle(player.x - 30, player.y - 75, 60, 6, 0x69db7c, 1).setOrigin(0, 0.5).setDepth(73),
@@ -1559,6 +1599,12 @@ export class WulandScene extends Phaser.Scene {
       .setFlipX(player.direction === "left")
       .setAlpha(player.sleeping || !player.online || player.defeated ? 0.58 : 1)
       .setTint(player.defeated ? 0xffb3b3 : player.sleeping || !player.online ? 0x9da6af : 0xffffff);
+    avatar.selectionRing.setVisible(
+      player.playerId === this.selectedPlayerId &&
+      player.playerId !== this.profile.playerId &&
+      !player.defeated &&
+      player.hp > 0
+    );
     avatar.heldItem.setVisible(
       Boolean(heldTexture) &&
       this.textures.exists(heldTexture) &&
@@ -1674,7 +1720,7 @@ export class WulandScene extends Phaser.Scene {
     avatar.selectionRing.setVisible(enemy.enemyId === this.selectedEnemyId && enemy.alive);
 
     if (!enemy.alive && this.selectedEnemyId === enemy.enemyId) {
-      this.selectedEnemyId = "";
+      this.selectCombatTarget();
     }
   }
 
@@ -1743,7 +1789,13 @@ export class WulandScene extends Phaser.Scene {
     let avatar = this.npcAvatars.get(npc.npcId);
 
     if (!avatar) {
+      const selectionRing = this.add
+        .circle(0, 4, 30, 0xffffff, 0)
+        .setStrokeStyle(3, 0xfff3bf, 1)
+        .setVisible(false);
       const sprite = this.add.sprite(0, 0, textureKey).setScale(1.02);
+      const hpBg = this.add.rectangle(-30, -67, 60, 6, 0x1f272a, 0.88).setOrigin(0, 0.5);
+      const hpFill = this.add.rectangle(-30, -67, 60, 6, 0x69db7c, 1).setOrigin(0, 0.5);
       const propLabel = this.add
         .text(24, -7, npcPropLabel(npc.type), {
           fontFamily: "Arial, sans-serif",
@@ -1755,7 +1807,7 @@ export class WulandScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       const nameLabel = this.add
-        .text(0, -57, npc.displayName, {
+        .text(0, -80, npc.displayName, {
           fontFamily: "Arial, sans-serif",
           fontSize: "12px",
           color: "#fff8e7",
@@ -1763,14 +1815,36 @@ export class WulandScene extends Phaser.Scene {
           padding: { x: 6, y: 2 }
         })
         .setOrigin(0.5);
-      const container = this.add.container(npc.x, npc.y, [sprite, propLabel, nameLabel]);
+      const statusLabel = this.add
+        .text(0, -48, "", {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "11px",
+          color: "#fff3bf",
+          backgroundColor: "rgba(35, 38, 45, 0.82)",
+          padding: { x: 5, y: 2 }
+        })
+        .setOrigin(0.5)
+        .setVisible(false);
+      const container = this.add.container(npc.x, npc.y, [
+        selectionRing,
+        sprite,
+        hpBg,
+        hpFill,
+        propLabel,
+        nameLabel,
+        statusLabel
+      ]);
       container.setDepth(48);
       avatar = {
         npcId: npc.npcId,
         container,
         sprite,
+        selectionRing,
+        hpBg,
+        hpFill,
         propLabel,
         nameLabel,
+        statusLabel,
         target: new Phaser.Math.Vector2(npc.x, npc.y),
         lastState: npc
       };
@@ -1781,11 +1855,24 @@ export class WulandScene extends Phaser.Scene {
 
     avatar.target.set(npc.x, npc.y);
     avatar.lastState = npc;
+    const hpPercent = npc.maxHp > 0 ? Phaser.Math.Clamp(npc.hp / npc.maxHp, 0, 1) : 0;
     avatar.nameLabel.setText(npc.displayName);
     avatar.propLabel.setText(npcPropLabel(npc.type));
+    avatar.hpFill
+      .setFillStyle(npc.defeated ? 0xff6b6b : hpPercent < 0.35 ? 0xffd43b : 0x69db7c)
+      .setDisplaySize(60 * hpPercent, 6);
+    avatar.statusLabel.setText(npc.defeated ? "respawning" : "").setVisible(npc.defeated);
+    avatar.hpBg.setVisible(!npc.defeated);
+    avatar.hpFill.setVisible(!npc.defeated);
+    avatar.selectionRing.setVisible(npc.npcId === this.selectedNpcId && !npc.defeated && npc.hp > 0);
     avatar.sprite
       .setFlipX(npc.direction === "left")
-      .setAlpha(definition ? 1 : 0.95);
+      .setAlpha(npc.defeated ? 0.46 : definition ? 1 : 0.95)
+      .setTint(npc.defeated ? 0xffb3b3 : 0xffffff);
+
+    if (npc.defeated && this.selectedNpcId === npc.npcId) {
+      this.selectCombatTarget();
+    }
 
     if (npc.speechText && npc.speechUntil > Date.now()) {
       this.showAnchoredSpeechBubble({
@@ -1841,6 +1928,7 @@ export class WulandScene extends Phaser.Scene {
     const defeated = avatar.lastState.defeated;
 
     avatar.aura.setPosition(x, y);
+    avatar.selectionRing.setPosition(x, y + 4);
     avatar.hpBg.setPosition(x - 30, y - 87);
     avatar.hpFill.setPosition(x - 30, y - 87);
     avatar.shieldFill.setPosition(x - 30, y - 80);
@@ -2265,6 +2353,26 @@ export class WulandScene extends Phaser.Scene {
     return best;
   }
 
+  private npcAtWorldPoint(x: number, y: number): AmbientNpcNetworkState | null {
+    let best: AmbientNpcNetworkState | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    this.latestNpcs.forEach((npc) => {
+      if (npc.mapId !== this.currentMapId || npc.defeated || npc.hp <= 0) {
+        return;
+      }
+
+      const distanceToNpc = Phaser.Math.Distance.Between(x, y, npc.x, npc.y);
+
+      if (distanceToNpc <= 36 && distanceToNpc < bestDistance) {
+        best = npc;
+        bestDistance = distanceToNpc;
+      }
+    });
+
+    return best;
+  }
+
   private droppedItemAtWorldPoint(x: number, y: number): DroppedItemNetworkState | null {
     let best: DroppedItemNetworkState | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
@@ -2305,10 +2413,34 @@ export class WulandScene extends Phaser.Scene {
     return best;
   }
 
-  private refreshEnemySelection(): void {
+  private selectCombatTarget(type?: "enemy" | "npc" | "player", id = ""): void {
+    this.selectedEnemyId = type === "enemy" ? id : "";
+    this.selectedNpcId = type === "npc" ? id : "";
+    this.selectedPlayerId = type === "player" ? id : "";
+    this.refreshCombatSelection();
+  }
+
+  private refreshCombatSelection(): void {
     this.enemyAvatars.forEach((avatar) => {
       avatar.selectionRing.setVisible(
         avatar.enemyId === this.selectedEnemyId && avatar.lastState.alive
+      );
+    });
+
+    this.npcAvatars.forEach((avatar) => {
+      avatar.selectionRing.setVisible(
+        avatar.npcId === this.selectedNpcId &&
+        !avatar.lastState.defeated &&
+        avatar.lastState.hp > 0
+      );
+    });
+
+    this.avatars.forEach((avatar) => {
+      avatar.selectionRing.setVisible(
+        avatar.playerId === this.selectedPlayerId &&
+        avatar.playerId !== this.profile.playerId &&
+        !avatar.lastState.defeated &&
+        avatar.lastState.hp > 0
       );
     });
   }
@@ -2438,6 +2570,7 @@ export class WulandScene extends Phaser.Scene {
     this.destroySpeechBubble(`player:${avatar.playerId}`);
     avatar.sprite.destroy();
     avatar.heldItem.destroy();
+    avatar.selectionRing.destroy();
     avatar.aura.destroy();
     avatar.hpBg.destroy();
     avatar.hpFill.destroy();
@@ -2556,6 +2689,10 @@ const snapshotNpc = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => ({
   spawnX: npc.spawnX,
   spawnY: npc.spawnY,
   wanderRadius: npc.wanderRadius,
+  hp: typeof npc.hp === "number" ? npc.hp : AMBIENT_NPC_MAX_HP,
+  maxHp: typeof npc.maxHp === "number" ? npc.maxHp : AMBIENT_NPC_MAX_HP,
+  defeated: Boolean(npc.defeated),
+  respawnAt: typeof npc.respawnAt === "number" ? npc.respawnAt : 0,
   direction: npc.direction,
   moving: npc.moving,
   speechText: npc.speechText,

@@ -5,6 +5,8 @@ import {
   CHAT_COOLDOWN_MS,
   CHAT_MAX_MESSAGE_LENGTH,
   DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
+  AMBIENT_NPC_MAX_HP,
+  AMBIENT_NPC_RESPAWN_MS,
   ENEMY_DEFINITIONS,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
@@ -15,6 +17,7 @@ import {
   PLAYER_STARTING_MONEY,
   WULAND_ENEMY_SPAWNS,
   WULAND_AMBIENT_NPCS,
+  WULAND_MAP_IDS,
   WULAND_MAP_ID,
   WULAND_MERCHANT,
   WULAND_MERCHANT_STOCK,
@@ -95,13 +98,20 @@ const GIFT_RANGE = 78;
 const PORTAL_INTERACT_RANGE = 84;
 const DROP_OFFSET = 34;
 const NPC_TARGET_REACHED_DISTANCE = 12;
-const NPC_TARGET_REFRESH_MS = 3800;
+const NPC_TARGET_REFRESH_MS = 11000;
 const NPC_SAVE_INTERVAL_MS = 6000;
 const NPC_SPEECH_MIN_MS = 7000;
 const NPC_SPEECH_MAX_MS = 13500;
 const NPC_SPEECH_DURATION_MS = 3600;
+const NPC_MAP_CHANGE_CHANCE = 0.42;
 const FORCE_DELETED_CLOSE_CODE = 4008;
 const PURCHASE_LOG_PREFIX = "[WULAND purchase]";
+
+type NpcTravelTarget = WorldPosition & { mapId: WulandMapId };
+type WeaponTarget =
+  | { kind: "enemy"; entity: WulandEnemySchema }
+  | { kind: "npc"; entity: WulandNpcSchema }
+  | { kind: "player"; entity: WulandPlayerSchema };
 
 export class WulandInventorySlotSchema extends Schema {
   @type("number") slotIndex = 0;
@@ -187,6 +197,10 @@ export class WulandNpcSchema extends Schema {
   @type("number") spawnX = 0;
   @type("number") spawnY = 0;
   @type("number") wanderRadius = 0;
+  @type("number") hp = AMBIENT_NPC_MAX_HP;
+  @type("number") maxHp = AMBIENT_NPC_MAX_HP;
+  @type("boolean") defeated = false;
+  @type("number") respawnAt = 0;
   @type("string") direction: Direction = "down";
   @type("boolean") moving = false;
   @type("string") speechText = "";
@@ -225,7 +239,7 @@ export class WulandRoom extends Room<WulandRoomState> {
   private readonly lastPersistedPosition = new Map<string, { x: number; y: number; at: number }>();
   private readonly lastBasicAttack = new Map<string, number>();
   private readonly enemyContactTimes = new Map<string, number>();
-  private readonly npcTargets = new Map<string, WorldPosition>();
+  private readonly npcTargets = new Map<string, NpcTravelTarget>();
   private readonly npcNextSpeechAt = new Map<string, number>();
   private readonly npcLastSavedAt = new Map<string, number>();
   private readonly lastChatAt = new Map<string, number>();
@@ -574,24 +588,27 @@ export class WulandRoom extends Room<WulandRoomState> {
     let anyCountChange = false;
 
     this.state.players.forEach((player) => {
-      if (!player.online) {
-        return;
-      }
-
       if (player.defeated) {
         player.moving = false;
 
         if (player.respawnAt > 0 && now >= player.respawnAt) {
-          player.mapId = WULAND_MAP_ID;
-          player.x = WULAND_WORLD.defaultSpawn.x;
-          player.y = WULAND_WORLD.defaultSpawn.y;
+          const mapId = normalizeMapId(player.mapId);
+          const respawn = randomWalkablePosition(mapId);
+          player.mapId = mapId;
+          player.x = respawn.x;
+          player.y = respawn.y;
           player.hp = player.maxHp;
           player.shield = 0;
           player.defeated = false;
           player.respawnAt = 0;
+          this.persistPlayer(player);
           this.broadcastCombatEvent("respawn", player.playerId, player.playerId, player.x, player.y, 0, "respawn", "#91f2bd");
         }
 
+        return;
+      }
+
+      if (!player.online) {
         return;
       }
 
@@ -710,7 +727,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       const record = stored.get(definition.npcId);
       const npc = npcFromDefinition(definition, record);
       this.state.npcs.set(npc.npcId, npc);
-      this.npcTargets.set(npc.npcId, randomNpcTarget(npc, definition));
+      this.npcTargets.set(npc.npcId, randomNpcTarget(npc));
       this.npcNextSpeechAt.set(npc.npcId, now + randomBetween(NPC_SPEECH_MIN_MS, NPC_SPEECH_MAX_MS));
       this.npcLastSavedAt.set(npc.npcId, now);
     });
@@ -721,6 +738,21 @@ export class WulandRoom extends Room<WulandRoomState> {
       const definition = npcDefinitionFor(npc.npcId);
 
       if (!definition) {
+        return;
+      }
+
+      if (npc.defeated) {
+        npc.moving = false;
+        npc.speechText = "";
+        npc.speechUntil = 0;
+
+        if (npc.respawnAt > 0 && now >= npc.respawnAt) {
+          this.respawnNpc(npc);
+          this.npcTargets.set(npc.npcId, randomNpcTarget(npc));
+          this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
+          this.persistNpcIfNeeded(npc, now, true);
+        }
+
         return;
       }
 
@@ -748,9 +780,19 @@ export class WulandRoom extends Room<WulandRoomState> {
       const targetAge = now - (this.npcLastSavedAt.get(`${npc.npcId}:target`) ?? 0);
 
       if (!target || distance(npc, target) <= NPC_TARGET_REACHED_DISTANCE || targetAge > NPC_TARGET_REFRESH_MS) {
-        target = randomNpcTarget(npc, definition);
+        target = randomNpcTarget(npc);
         this.npcTargets.set(npc.npcId, target);
         this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
+      }
+
+      if (target.mapId !== normalizeMapId(npc.mapId)) {
+        const arrival = randomWalkablePosition(target.mapId);
+        npc.mapId = target.mapId;
+        npc.x = arrival.x;
+        npc.y = arrival.y;
+        npc.moving = false;
+        npc.speechText = "";
+        npc.speechUntil = 0;
       }
 
       this.moveNpcToward(npc, target, definition.speed, deltaMs);
@@ -791,7 +833,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       const definition = npcDefinitionFor(npc.npcId);
 
       if (definition) {
-        this.npcTargets.set(npc.npcId, randomNpcTarget(npc, definition));
+        this.npcTargets.set(npc.npcId, randomNpcTarget(npc));
         this.npcLastSavedAt.set(`${npc.npcId}:target`, Date.now());
       }
     }
@@ -991,14 +1033,16 @@ export class WulandRoom extends Room<WulandRoomState> {
 
     this.lastBasicAttack.set(playerId, now);
     const damage = itemDefinition.damage ?? 1;
-    this.damageEnemy(target, damage, player, now, itemDefinition.displayName);
+    this.damageWeaponTarget(target, damage, player, now, itemDefinition.displayName);
+    const targetId = weaponTargetId(target);
+    const targetPosition = weaponTargetPosition(target);
 
     this.broadcastCombatEvent(
       "weapon",
       player.playerId,
-      target.enemyId,
-      target.x,
-      target.y,
+      targetId,
+      targetPosition.x,
+      targetPosition.y,
       damage,
       itemDefinition.displayName,
       colorForItem(itemDefinition),
@@ -1010,8 +1054,9 @@ export class WulandRoom extends Room<WulandRoomState> {
     player: WulandPlayerSchema,
     request: CombatRequest,
     itemDefinition: ItemDefinition
-  ): WulandEnemySchema | null {
+  ): WeaponTarget | null {
     const range = itemDefinition.range ?? 0;
+    const direction = request.direction ?? player.direction;
 
     if (request.targetEnemyId) {
       const requested = this.state.enemies.get(request.targetEnemyId);
@@ -1020,49 +1065,121 @@ export class WulandRoom extends Room<WulandRoomState> {
         requested?.alive &&
         normalizeMapId(requested.mapId) === normalizeMapId(player.mapId) &&
         distance(player, requested) <= range &&
-        (itemDefinition.attackShape !== "arc" || isInFrontArc(player, requested, request.direction ?? player.direction))
+        (itemDefinition.attackShape !== "arc" || isInFrontArc(player, requested, direction))
       ) {
-        return requested;
+        return { kind: "enemy", entity: requested };
       }
     }
 
-    const direction = request.direction ?? player.direction;
+    if (request.targetNpcId) {
+      const requested = this.state.npcs.get(request.targetNpcId);
+
+      if (
+        requested &&
+        canDamageNpc(requested) &&
+        normalizeMapId(requested.mapId) === normalizeMapId(player.mapId) &&
+        distance(player, requested) <= range &&
+        (itemDefinition.attackShape !== "arc" || isInFrontArc(player, requested, direction))
+      ) {
+        return { kind: "npc", entity: requested };
+      }
+    }
+
+    if (request.targetPlayerId) {
+      const requested = this.state.players.get(request.targetPlayerId);
+
+      if (
+        requested &&
+        requested.playerId !== player.playerId &&
+        canDamagePlayer(requested) &&
+        normalizeMapId(requested.mapId) === normalizeMapId(player.mapId) &&
+        distance(player, requested) <= range &&
+        (itemDefinition.attackShape !== "arc" || isInFrontArc(player, requested, direction))
+      ) {
+        return { kind: "player", entity: requested };
+      }
+    }
+
     const facing = vectorForDirection(direction);
-    let best: WulandEnemySchema | null = null;
+    let best: WeaponTarget | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
+
+    const considerTarget = (
+      target: WeaponTarget,
+      targetPosition: WorldPosition,
+      targetMapId: WulandMapId
+    ): void => {
+      if (normalizeMapId(targetMapId) !== normalizeMapId(player.mapId)) {
+        return;
+      }
+
+      const dx = targetPosition.x - player.x;
+      const dy = targetPosition.y - player.y;
+      const distanceToTarget = Math.hypot(dx, dy);
+
+      if (distanceToTarget > range) {
+        return;
+      }
+
+      const dot = distanceToTarget > 0
+        ? (dx / distanceToTarget) * facing.x + (dy / distanceToTarget) * facing.y
+        : 1;
+
+      if (
+        (itemDefinition.attackShape !== "arc" || dot >= BASIC_FACING_DOT) &&
+        dot >= (itemDefinition.attackShape === "projectile" ? Math.cos((110 * Math.PI) / 180) : BASIC_FACING_DOT) &&
+        distanceToTarget < bestDistance
+      ) {
+        bestDistance = distanceToTarget;
+        best = target;
+      }
+    };
 
     this.state.enemies.forEach((enemy) => {
       if (!enemy.alive) {
         return;
       }
 
-      if (normalizeMapId(enemy.mapId) !== normalizeMapId(player.mapId)) {
+      considerTarget({ kind: "enemy", entity: enemy }, enemy, normalizeMapId(enemy.mapId));
+    });
+
+    this.state.npcs.forEach((npc) => {
+      if (!canDamageNpc(npc)) {
         return;
       }
 
-      const dx = enemy.x - player.x;
-      const dy = enemy.y - player.y;
-      const distanceToEnemy = Math.hypot(dx, dy);
+      considerTarget({ kind: "npc", entity: npc }, npc, normalizeMapId(npc.mapId));
+    });
 
-      if (distanceToEnemy > range) {
+    this.state.players.forEach((targetPlayer) => {
+      if (targetPlayer.playerId === player.playerId || !canDamagePlayer(targetPlayer)) {
         return;
       }
 
-      const dot = distanceToEnemy > 0
-        ? (dx / distanceToEnemy) * facing.x + (dy / distanceToEnemy) * facing.y
-        : 1;
-
-      if (
-        (itemDefinition.attackShape !== "arc" || dot >= BASIC_FACING_DOT) &&
-        dot >= (itemDefinition.attackShape === "projectile" ? Math.cos((110 * Math.PI) / 180) : BASIC_FACING_DOT) &&
-        distanceToEnemy < bestDistance
-      ) {
-        bestDistance = distanceToEnemy;
-        best = enemy;
-      }
+      considerTarget({ kind: "player", entity: targetPlayer }, targetPlayer, normalizeMapId(targetPlayer.mapId));
     });
 
     return best;
+  }
+
+  private damageWeaponTarget(
+    target: WeaponTarget,
+    amount: number,
+    player: WulandPlayerSchema,
+    now: number,
+    label: string
+  ): void {
+    if (target.kind === "enemy") {
+      this.damageEnemy(target.entity, amount, player, now, label);
+      return;
+    }
+
+    if (target.kind === "npc") {
+      this.damageNpc(target.entity, amount, player, now, label);
+      return;
+    }
+
+    this.damagePlayer(target.entity, amount, player.playerId, now);
   }
 
   private damageEnemy(
@@ -1094,13 +1211,43 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.updateCounts();
   }
 
+  private damageNpc(
+    npc: WulandNpcSchema,
+    amount: number,
+    player: WulandPlayerSchema,
+    now: number,
+    label: string
+  ): void {
+    if (!canDamageNpc(npc)) {
+      return;
+    }
+
+    const rounded = Math.max(1, Math.round(amount));
+    npc.hp = Math.max(0, npc.hp - rounded);
+    this.broadcastCombatEvent("damage", player.playerId, npc.npcId, npc.x, npc.y, rounded, `-${rounded}`, "#fff3bf");
+
+    if (npc.hp > 0) {
+      this.persistNpcIfNeeded(npc, now, true);
+      return;
+    }
+
+    npc.defeated = true;
+    npc.moving = false;
+    npc.speechText = "";
+    npc.speechUntil = 0;
+    npc.respawnAt = now + AMBIENT_NPC_RESPAWN_MS;
+    this.npcTargets.delete(npc.npcId);
+    this.persistNpcIfNeeded(npc, now, true);
+    this.broadcastCombatEvent("npc-defeated", player.playerId, npc.npcId, npc.x, npc.y, 0, `${label} knocked out ${npc.displayName}`, "#91f2bd");
+  }
+
   private damagePlayer(
     player: WulandPlayerSchema,
     amount: number,
     sourceId: string,
     now: number
   ): void {
-    if (!canFight(player)) {
+    if (!canDamagePlayer(player)) {
       return;
     }
 
@@ -1112,6 +1259,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.broadcastCombatEvent("damage", sourceId, player.playerId, player.x, player.y, rounded, `-${rounded}`, "#ff8787");
 
     if (player.hp > 0) {
+      this.persistPlayer(player);
       return;
     }
 
@@ -1120,6 +1268,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     player.respawnAt = now + PLAYER_RESPAWN_MS;
     this.inputs.set(player.playerId, { ...ZERO_INPUT });
     this.moveTargets.delete(player.playerId);
+    this.persistPlayer(player);
     this.broadcastCombatEvent("player-defeated", sourceId, player.playerId, player.x, player.y, 0, "defeated", "#ff8787");
   }
 
@@ -1230,8 +1379,10 @@ export class WulandRoom extends Room<WulandRoomState> {
     const droppedItem = droppedItemFromRecord({
       droppedItemId: `drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       itemDefinitionId: item.itemDefinitionId,
-      itemInstanceId: item.itemInstanceId,
-      quantity: item.quantity,
+      itemInstanceId: item.quantity > 1
+        ? createItemInstanceId(item.itemDefinitionId, `${player.playerId}-drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+        : item.itemInstanceId,
+      quantity: 1,
       mapId,
       x: dropPosition.x,
       y: dropPosition.y,
@@ -1239,7 +1390,7 @@ export class WulandRoom extends Room<WulandRoomState> {
       droppedAt: new Date().toISOString()
     });
 
-    clearSlot(slot);
+    removeOneFromSlot(slot);
     this.state.droppedItems.set(droppedItem.droppedItemId, droppedItem);
     this.playerStore.upsertDroppedItem(recordFromDroppedItem(droppedItem));
     this.persistPlayer(player);
@@ -1628,6 +1779,22 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.updateCounts();
   }
 
+  private respawnNpc(npc: WulandNpcSchema): void {
+    const mapId = normalizeMapId(npc.mapId);
+    const position = randomWalkablePosition(mapId);
+    npc.mapId = mapId;
+    npc.x = position.x;
+    npc.y = position.y;
+    npc.hp = npc.maxHp > 0 ? npc.maxHp : AMBIENT_NPC_MAX_HP;
+    npc.maxHp = npc.maxHp > 0 ? npc.maxHp : AMBIENT_NPC_MAX_HP;
+    npc.defeated = false;
+    npc.respawnAt = 0;
+    npc.moving = false;
+    npc.speechText = "";
+    npc.speechUntil = 0;
+    this.broadcastCombatEvent("respawn", npc.npcId, npc.npcId, npc.x, npc.y, 0, "respawn", "#91f2bd");
+  }
+
   private broadcastCombatEvent(
     type: CombatEvent["type"],
     sourceId: string,
@@ -1698,6 +1865,8 @@ export class WulandRoom extends Room<WulandRoomState> {
       this.state.players.get(targetId)?.mapId ??
       this.state.enemies.get(sourceId)?.mapId ??
       this.state.enemies.get(targetId)?.mapId ??
+      this.state.npcs.get(sourceId)?.mapId ??
+      this.state.npcs.get(targetId)?.mapId ??
       this.state.droppedItems.get(sourceId)?.mapId ??
       this.state.droppedItems.get(targetId)?.mapId ??
       WULAND_MAP_ID
@@ -1735,10 +1904,10 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.playerStore.upsert(recordFromSchema(player), { immediate });
   }
 
-  private persistNpcIfNeeded(npc: WulandNpcSchema, now: number): void {
+  private persistNpcIfNeeded(npc: WulandNpcSchema, now: number, force = false): void {
     const previous = this.npcLastSavedAt.get(npc.npcId) ?? 0;
 
-    if (now - previous < NPC_SAVE_INTERVAL_MS) {
+    if (!force && now - previous < NPC_SAVE_INTERVAL_MS) {
       return;
     }
 
@@ -1901,12 +2070,16 @@ const npcFromDefinition = (
   npc.npcId = definition.npcId;
   npc.type = definition.type;
   npc.displayName = definition.displayName;
-  npc.mapId = definition.mapId;
+  npc.mapId = mapId;
   npc.x = position.x;
   npc.y = position.y;
   npc.spawnX = definition.x;
   npc.spawnY = definition.y;
   npc.wanderRadius = definition.wanderRadius;
+  npc.maxHp = normalizeNpcHp(record?.maxHp, AMBIENT_NPC_MAX_HP);
+  npc.hp = normalizeNpcHp(record?.hp, npc.maxHp, true);
+  npc.defeated = record?.defeated ?? false;
+  npc.respawnAt = Number.isFinite(record?.respawnAt) ? record?.respawnAt ?? 0 : 0;
   npc.direction = record?.direction ?? "down";
   npc.moving = false;
   npc.speechText = record?.speechText ?? "";
@@ -1924,25 +2097,35 @@ const recordFromNpc = (npc: WulandNpcSchema): AmbientNpcNetworkState => ({
   spawnX: npc.spawnX,
   spawnY: npc.spawnY,
   wanderRadius: npc.wanderRadius,
+  hp: npc.hp,
+  maxHp: npc.maxHp,
+  defeated: npc.defeated,
+  respawnAt: npc.respawnAt,
   direction: npc.direction,
   moving: npc.moving,
   speechText: npc.speechText,
   speechUntil: npc.speechUntil
 });
 
-const randomNpcTarget = (
-  npc: WulandNpcSchema,
-  definition: AmbientNpcDefinition
-): WorldPosition => {
-  const mapId = normalizeMapId(definition.mapId);
-  const collisions = getMapCollisionRects(mapId);
+const normalizeNpcHp = (value: unknown, fallback: number, allowZero = false): number =>
+  typeof value === "number" && Number.isFinite(value) && (allowZero ? value >= 0 : value > 0)
+    ? Math.floor(value)
+    : fallback;
 
-  for (let attempt = 0; attempt < 14; attempt += 1) {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = Math.random() * definition.wanderRadius;
+const randomMapIdExcept = (currentMapId: WulandMapId): WulandMapId => {
+  const candidates = WULAND_MAP_IDS.filter((mapId) => mapId !== currentMapId);
+  return randomChoice(candidates.length > 0 ? candidates : WULAND_MAP_IDS);
+};
+
+const randomWalkablePosition = (mapId: WulandMapId): WorldPosition => {
+  const map = getMapDefinition(mapId);
+  const collisions = getMapCollisionRects(mapId);
+  const margin = 54;
+
+  for (let attempt = 0; attempt < 80; attempt += 1) {
     const candidate = clampMapPosition({
-      x: definition.x + Math.cos(angle) * radius,
-      y: definition.y + Math.sin(angle) * radius
+      x: randomBetween(margin, Math.max(margin, map.width - margin)),
+      y: randomBetween(margin, Math.max(margin, map.height - margin))
     }, mapId);
 
     if (!collidesWithWorld(candidate, collisions)) {
@@ -1950,11 +2133,46 @@ const randomNpcTarget = (
     }
   }
 
-  return clampMapPosition({ x: npc.spawnX, y: npc.spawnY }, mapId);
+  return clampMapPosition(map.defaultSpawn, mapId);
+};
+
+const randomNpcTarget = (npc: WulandNpcSchema): NpcTravelTarget => {
+  const currentMapId = normalizeMapId(npc.mapId);
+  const mapId = Math.random() < NPC_MAP_CHANGE_CHANCE
+    ? randomMapIdExcept(currentMapId)
+    : currentMapId;
+
+  return {
+    ...randomWalkablePosition(mapId),
+    mapId
+  };
 };
 
 const canFight = (player: WulandPlayerSchema): boolean =>
   player.online && !player.sleeping && !player.defeated && player.hp > 0;
+
+const canDamagePlayer = (player: WulandPlayerSchema): boolean =>
+  !player.defeated && player.hp > 0;
+
+const canDamageNpc = (npc: WulandNpcSchema): boolean =>
+  !npc.defeated && npc.hp > 0;
+
+const weaponTargetId = (target: WeaponTarget): string => {
+  if (target.kind === "enemy") {
+    return target.entity.enemyId;
+  }
+
+  if (target.kind === "npc") {
+    return target.entity.npcId;
+  }
+
+  return target.entity.playerId;
+};
+
+const weaponTargetPosition = (target: WeaponTarget): WorldPosition => ({
+  x: target.entity.x,
+  y: target.entity.y
+});
 
 const distance = (a: WorldPosition, b: WorldPosition): number =>
   Math.hypot(a.x - b.x, a.y - b.y);
@@ -2343,7 +2561,24 @@ const schemaFromRecord = (record: PlayerNetworkState): WulandPlayerSchema => {
   player.lastSeenAt = record.lastSeenAt;
   player.lastSavedAt = record.lastSavedAt;
   player.money = normalizeMoney(record.money);
-  resetPlayerCombat(player);
+  player.maxHp = typeof record.maxHp === "number" && Number.isFinite(record.maxHp) && record.maxHp > 0
+    ? record.maxHp
+    : PLAYER_MAX_HP;
+  player.hp = typeof record.hp === "number" && Number.isFinite(record.hp)
+    ? Math.min(Math.max(0, record.hp), player.maxHp)
+    : player.maxHp;
+  player.shield = typeof record.shield === "number" && Number.isFinite(record.shield)
+    ? Math.max(0, record.shield)
+    : 0;
+  player.defeated = Boolean(record.defeated);
+  player.respawnAt = typeof record.respawnAt === "number" && Number.isFinite(record.respawnAt)
+    ? record.respawnAt
+    : 0;
+  player.specialCooldownUntil = typeof record.specialCooldownUntil === "number" && Number.isFinite(record.specialCooldownUntil)
+    ? record.specialCooldownUntil
+    : 0;
+  player.activeBuffs = record.activeBuffs ?? "";
+  player.markedTargets = record.markedTargets ?? "";
   applyInventoryToSchema(player, record.inventory, record.playerId, {
     starterWhenEmpty: false
   });
@@ -2370,14 +2605,14 @@ const recordFromSchema = (player: WulandPlayerSchema): PlayerNetworkState => ({
   moving: player.moving,
   online: player.online,
   sleeping: player.sleeping,
-  hp: PLAYER_MAX_HP,
-  maxHp: PLAYER_MAX_HP,
-  shield: 0,
-  defeated: false,
-  respawnAt: 0,
-  specialCooldownUntil: 0,
-  activeBuffs: "",
-  markedTargets: "",
+  hp: player.hp,
+  maxHp: player.maxHp,
+  shield: player.shield,
+  defeated: player.defeated,
+  respawnAt: player.respawnAt,
+  specialCooldownUntil: player.specialCooldownUntil,
+  activeBuffs: player.activeBuffs,
+  markedTargets: player.markedTargets,
   inventory: inventoryFromSchema(player),
   selectedHotbarSlot: normalizeHotbarSlot(player.selectedHotbarSlot),
   money: normalizeMoney(player.money),

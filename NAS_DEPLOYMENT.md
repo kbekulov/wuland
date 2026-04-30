@@ -182,7 +182,7 @@ Expected response:
 {
   "ok": true,
   "service": "wuland-server",
-  "protocolVersion": 12
+  "protocolVersion": 13
 }
 ```
 

@@ -92,12 +92,14 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
 - `E`: use the selected consumable.
 - `F`: use a nearby door, pick up a nearby dropped item, or open the merchant shop when near the merchant.
 - `G`: gift the selected cake to a nearby online player.
-- Click or tap an enemy: select it as your weapon target.
-- Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop it on the map.
+- Click or tap an enemy, NPC, or another player: select it as your weapon target.
+- Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop one item from that slot onto the map.
 - `Enter`: focus chat, then `Enter` again to send. After sending, the chat input loses focus and character controls resume.
 - `Escape`: leave chat input without sending.
 
-Combat is intentionally simple prototype combat. The server owns player HP, enemy HP, inventories, selected hotbar slots, dropped items, enemy movement, damage, defeats, and respawns. The browser only sends movement, inventory, pickup, and attack requests.
+Combat is intentionally simple prototype combat. The server owns player HP, NPC HP, enemy HP, inventories, selected hotbar slots, dropped items, enemy movement, damage, defeats, and respawns. The browser only sends movement, inventory, pickup, and attack requests.
+
+Weapon attacks can hit enemies, ambient NPCs, and other players in the same map. Sleeping offline players can be attacked too. The merchant is not attackable and remains fixed in the WULAND village. Defeated NPCs and players respawn with full HP at a random walkable place in their current map.
 
 While typing in chat, gameplay movement, attack keys, and inventory hotkeys are ignored. Chat only captures keyboard input while its text input is focused.
 
@@ -136,7 +138,7 @@ The merchant sells:
 
 Buying is server-authoritative: click `Buy`, the server validates the item, money, and inventory space, subtracts the price, and adds the item to the authoritative hotbar. The shop now shows direct purchase feedback from the server, such as `Bought Sword`, `Inventory full`, or `Shop is too far away`. If the inventory is full, the purchase is blocked.
 
-Cakes are consumables. Select a cake with `1` through `9`, then press `E` to eat it and heal. Stand near another online player and press `G` to gift the selected cake. Cakes can also be dragged out of the hotbar to drop them on the map, then another player can pick them up with `F`.
+Cakes are consumables. Select a cake with `1` through `9`, then press `E` to eat it and heal. Stand near another online player and press `G` to gift the selected cake. Cakes can also be dragged out of the hotbar to drop them on the map, then another player can pick them up with `F`. If a slot contains a stack, dropping discards only one item at a time.
 
 For temporary live-world cleanup, the server also supports:
 
@@ -147,7 +149,7 @@ For temporary live-world cleanup, the server also supports:
 
 ## NPCs And Chat
 
-Ambient NPCs are rendered as simple human-shaped characters with distinct outfits and small job props. They wander slowly around assigned maps, avoid obvious obstacles, and occasionally show speech bubbles. Current NPCs include:
+Ambient NPCs are rendered as simple human-shaped characters with distinct outfits and small job props. They wander slowly, avoid obvious obstacles, and now randomly explore the overworld and building interiors instead of orbiting one tiny area forever. They occasionally show speech bubbles. Current NPCs include:
 
 - Cleaning Lady in Bathroom and Kitchen.
 - Security Guard in WULAND and near the RPA CoE entrance.
@@ -275,3 +277,5 @@ Phase 9 adds persistent server chat history, the Data Analyst class, and safer J
 Phase 10 fixes merchant buying, adds persisted prototype money, item prices, purchase logs, and stricter inventory repair for bought, dropped, picked-up, and reconnected items.
 
 Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-item sprites, human-shaped NPCs, anchored speech bubbles, and cleaner doorway labels.
+
+The current gameplay patch lets NPCs explore all maps, allows attacks against NPCs and other players including sleeping players, respawns defeated NPCs/players at random walkable map locations, and drops only one item from stacked inventory slots.

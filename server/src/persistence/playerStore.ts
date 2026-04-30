@@ -7,6 +7,7 @@ import {
   CLASS_METADATA,
   DEFAULT_COSMETICS,
   DEFAULT_OFFLINE_PLAYER_TTL_HOURS,
+  AMBIENT_NPC_MAX_HP,
   HOTBAR_SLOT_COUNT,
   PLAYER_MAX_HP,
   PLAYER_STARTING_MONEY,
@@ -523,6 +524,12 @@ const repairStoredPlayer = (value: unknown, index: number): PlayerNetworkState |
 const normalizeStoredPlayer = (player: PlayerNetworkState): PlayerNetworkState => {
   const mapId = normalizeMapId(player.mapId);
   const position = clampMapPosition({ x: player.x, y: player.y }, mapId);
+  const maxHp = typeof player.maxHp === "number" && Number.isFinite(player.maxHp) && player.maxHp > 0
+    ? player.maxHp
+    : AMBIENT_NPC_MAX_HP;
+  const hp = typeof player.hp === "number" && Number.isFinite(player.hp)
+    ? Math.min(Math.max(0, player.hp), maxHp)
+    : maxHp;
 
   return {
     ...player,
@@ -534,14 +541,16 @@ const normalizeStoredPlayer = (player: PlayerNetworkState): PlayerNetworkState =
     online: false,
     sleeping: true,
     moving: false,
-    hp: PLAYER_MAX_HP,
-    maxHp: PLAYER_MAX_HP,
-    shield: 0,
-    defeated: false,
-    respawnAt: 0,
-    specialCooldownUntil: 0,
-    activeBuffs: "",
-    markedTargets: "",
+    hp,
+    maxHp,
+    shield: typeof player.shield === "number" && Number.isFinite(player.shield) ? Math.max(0, player.shield) : 0,
+    defeated: Boolean(player.defeated),
+    respawnAt: typeof player.respawnAt === "number" && Number.isFinite(player.respawnAt) ? player.respawnAt : 0,
+    specialCooldownUntil: typeof player.specialCooldownUntil === "number" && Number.isFinite(player.specialCooldownUntil)
+      ? player.specialCooldownUntil
+      : 0,
+    activeBuffs: typeof player.activeBuffs === "string" ? player.activeBuffs : "",
+    markedTargets: typeof player.markedTargets === "string" ? player.markedTargets : "",
     inventory: normalizeInventory(player.inventory, player.playerId, {
       starterWhenEmpty: false
     }),
@@ -573,6 +582,12 @@ const cloneNpcState = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => {
   const mapId = normalizeMapId(npc.mapId);
   const position = clampMapPosition({ x: npc.x, y: npc.y }, mapId);
   const spawn = clampMapPosition({ x: npc.spawnX, y: npc.spawnY }, mapId);
+  const maxHp = typeof npc.maxHp === "number" && Number.isFinite(npc.maxHp) && npc.maxHp > 0
+    ? npc.maxHp
+    : PLAYER_MAX_HP;
+  const hp = typeof npc.hp === "number" && Number.isFinite(npc.hp)
+    ? Math.min(Math.max(0, npc.hp), maxHp)
+    : maxHp;
 
   return {
     ...npc,
@@ -581,6 +596,10 @@ const cloneNpcState = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => {
     y: position.y,
     spawnX: spawn.x,
     spawnY: spawn.y,
+    hp,
+    maxHp,
+    defeated: Boolean(npc.defeated),
+    respawnAt: typeof npc.respawnAt === "number" && Number.isFinite(npc.respawnAt) ? npc.respawnAt : 0,
     direction: isDirection(npc.direction) ? npc.direction : "down",
     speechText: npc.speechText.slice(0, 140),
     speechUntil: Number.isFinite(npc.speechUntil) ? npc.speechUntil : 0

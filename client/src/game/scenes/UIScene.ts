@@ -82,6 +82,7 @@ export class UIScene extends Phaser.Scene {
     this.profile = data.profile;
     this.progress = data.progress;
     this.connection = data.connection ?? this.connection;
+    this.chatCollapsed = prefersTouchLayout();
     this.mount();
     this.render();
 
@@ -93,6 +94,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.on("wuland:chatHistory", this.handleChatHistory, this);
     this.game.events.on("wuland:chatMessage", this.handleChatMessage, this);
     this.game.events.on("wuland:shopFeedback", this.handleShopFeedback, this);
+    this.game.events.on("wuland:focusChat", this.focusChatInput, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
   }
 
@@ -130,7 +132,7 @@ export class UIScene extends Phaser.Scene {
             <span class="meter-track"><span data-hud-hp-fill></span></span>
           </div>
         </div>
-        <div class="hud-hint">1-9 select | Space attack | E use | F interact/shop | G gift</div>
+        <div class="hud-hint">Tap the map to move | Tap a target then Attack | Use the D-pad for tight spaces</div>
         <div class="hud-active-item">
           <span class="eyebrow">Selected</span>
           <strong data-hud-active-item>No item</strong>
@@ -181,10 +183,11 @@ export class UIScene extends Phaser.Scene {
         <div>
           <button type="button" class="secondary small" data-action="close-help">Close</button>
           <h2>Controls</h2>
-          <p>WASD / arrows move. Click or tap the map to move there. Click or tap an enemy to select it.</p>
-          <p>1-9 selects a hotbar slot. Space attacks with the selected weapon. E uses a selected consumable. F uses doors, picks up nearby drops, or opens the shop near the merchant. G gifts selected cakes to nearby players.</p>
+          <p>Phone first: tap the map to travel, use the D-pad for tight spaces, tap a target, then press Attack.</p>
+          <p>Tap a hotbar slot to select it. Attack uses the selected weapon. Use eats selected cakes. Interact uses doors, picks up nearby drops, or opens the merchant shop. Gift sends selected cake to a nearby player.</p>
+          <p>Desktop still works: WASD / arrows move, Space attacks, E uses, F interacts, G gifts, and 1-9 select hotbar slots.</p>
           <p>Enter focuses chat. Enter again sends. Escape leaves chat input.</p>
-          <p>Drag hotbar items to swap slots. Drag outside the hotbar to drop an item on the map. Sleeping players stay visible but do not fight.</p>
+          <p>Drag hotbar items to swap slots. Drag outside the hotbar to drop one item from that slot on the map. Sleeping players stay visible and can be targeted in prototype combat.</p>
           <p>God Mode is a prototype admin tool: when active, click a dropped item to delete it or another player to delete that character.</p>
         </div>
       </section>
@@ -288,6 +291,7 @@ export class UIScene extends Phaser.Scene {
     this.root.dataset.shopOpen = String(this.shopOpen);
     this.root.dataset.chatCollapsed = String(this.chatCollapsed);
     this.root.dataset.godModeActive = String(this.connection.godModeActive);
+    this.root.dataset.touchLayout = String(prefersTouchLayout());
     this.setGodModeButton();
     this.setChatButton();
     this.renderHotbar();
@@ -335,8 +339,17 @@ export class UIScene extends Phaser.Scene {
     this.chatCollapsed = force ?? !this.chatCollapsed;
     if (this.chatCollapsed) {
       this.root?.querySelector<HTMLInputElement>("[data-chat-input]")?.blur();
+    } else if (prefersTouchLayout()) {
+      window.setTimeout(() => this.focusChatInput(), 0);
     }
     this.render();
+  }
+
+  private focusChatInput(): void {
+    this.chatCollapsed = false;
+    this.render();
+    const input = this.root?.querySelector<HTMLInputElement>("[data-chat-input]");
+    input?.focus();
   }
 
   private toggleGodMode(): void {
@@ -464,15 +477,15 @@ export class UIScene extends Phaser.Scene {
     const hints: string[] = [];
 
     if (this.connection.nearMerchant) {
-      hints.push("F: shop");
+      hints.push(prefersTouchLayout() ? "Interact: shop" : "F: shop");
     } else if (this.connection.portalPrompt) {
-      hints.push(this.connection.portalPrompt);
+      hints.push(prefersTouchLayout() ? touchPortalPrompt(this.connection.portalPrompt) : this.connection.portalPrompt);
     } else if (this.connection.nearbyPickupName) {
-      hints.push(`F: pick up ${this.connection.nearbyPickupName}`);
+      hints.push(prefersTouchLayout() ? `Interact: pick up ${this.connection.nearbyPickupName}` : `F: pick up ${this.connection.nearbyPickupName}`);
     }
 
     if (this.connection.nearbyGiftPlayerName) {
-      hints.push(`G: gift to ${this.connection.nearbyGiftPlayerName}`);
+      hints.push(prefersTouchLayout() ? `Gift: ${this.connection.nearbyGiftPlayerName}` : `G: gift to ${this.connection.nearbyGiftPlayerName}`);
     }
 
     return hints.join(" | ");
@@ -696,6 +709,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.off("wuland:chatHistory", this.handleChatHistory, this);
     this.game.events.off("wuland:chatMessage", this.handleChatMessage, this);
     this.game.events.off("wuland:shopFeedback", this.handleShopFeedback, this);
+    this.game.events.off("wuland:focusChat", this.focusChatInput, this);
     window.removeEventListener("pointermove", this.handleHotbarPointerMove);
     window.removeEventListener("pointerup", this.handleHotbarPointerUp);
     window.removeEventListener("keydown", this.handleWindowKeydown, true);
@@ -742,6 +756,13 @@ const canFitInventoryItem = (
 
 const formatMoney = (value: number): string =>
   Math.max(0, Math.floor(value)).toLocaleString("en-US");
+
+const prefersTouchLayout = (): boolean =>
+  window.matchMedia("(pointer: coarse)").matches ||
+  window.innerWidth <= 860;
+
+const touchPortalPrompt = (prompt: string): string =>
+  prompt.replace(/^Press F to /, "Interact: ");
 
 const itemIconMarkup = (
   definition: ItemDefinition | null

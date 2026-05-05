@@ -265,6 +265,9 @@ export class WulandScene extends Phaser.Scene {
     this.virtualInput = { ...ZERO_INPUT };
     this.sendMovementInput(ZERO_INPUT, true);
   };
+  private readonly handleViewportControlsChange = (): void => {
+    document.body.toggleAttribute("data-touch-controls", shouldUseTouchControls());
+  };
 
   constructor() {
     super("WulandScene");
@@ -354,6 +357,8 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.on("wuland:sendChat", this.sendChatMessage, this);
     this.game.events.on("wuland:setGodMode", this.setGodMode, this);
     window.addEventListener("blur", this.handleWindowBlur);
+    window.addEventListener("resize", this.handleViewportControlsChange);
+    window.addEventListener("orientationchange", this.handleViewportControlsChange);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
 
     void this.connectToRoom();
@@ -372,6 +377,7 @@ export class WulandScene extends Phaser.Scene {
     if (localPlayer) {
       this.updateClickTarget(localPlayer, time);
       this.updateInteractionContext(localPlayer);
+      this.updateMobileControlHints(localPlayer);
       this.updateVisitedBuildings(localPlayer);
 
       if (time - this.lastProgressSave > 650) {
@@ -927,27 +933,24 @@ export class WulandScene extends Phaser.Scene {
       return;
     }
 
-    const touchLikely =
-      window.matchMedia("(pointer: coarse)").matches ||
-      window.innerWidth <= 860;
-    document.body.toggleAttribute("data-touch-controls", touchLikely);
+    this.handleViewportControlsChange();
 
     const root = document.createElement("div");
     root.className = "mobile-controls";
     root.innerHTML = `
       <div class="mobile-dpad" aria-label="Movement controls">
-        <button type="button" data-mobile-dir="up" aria-label="Move up">Up</button>
-        <button type="button" data-mobile-dir="left" aria-label="Move left">Left</button>
-        <button type="button" data-mobile-dir="down" aria-label="Move down">Down</button>
-        <button type="button" data-mobile-dir="right" aria-label="Move right">Right</button>
+        <button type="button" data-mobile-dir="up" aria-label="Move up">↑</button>
+        <button type="button" data-mobile-dir="left" aria-label="Move left">←</button>
+        <button type="button" data-mobile-dir="down" aria-label="Move down">↓</button>
+        <button type="button" data-mobile-dir="right" aria-label="Move right">→</button>
       </div>
-      <div class="mobile-actions" aria-label="Combat controls">
+      <div class="mobile-actions" aria-label="Action controls">
         <button type="button" data-mobile-action="attack">Attack</button>
+        <button type="button" data-mobile-action="pickup">Act</button>
         <button type="button" data-mobile-action="use">Use</button>
-        <button type="button" data-mobile-action="pickup">Interact</button>
         <button type="button" data-mobile-action="gift">Gift</button>
+        <button type="button" data-mobile-action="chat">Chat</button>
         <button type="button" data-mobile-action="help">Help</button>
-        <button type="button" data-mobile-action="debug">F3</button>
       </div>
     `;
     uiRoot.appendChild(root);
@@ -958,11 +961,13 @@ export class WulandScene extends Phaser.Scene {
       const activate = (event: PointerEvent): void => {
         event.preventDefault();
         button.setPointerCapture?.(event.pointerId);
+        button.classList.add("active");
         this.virtualInput = { ...ZERO_INPUT, [direction]: true };
         this.clearClickTarget(true);
       };
       const deactivate = (event: PointerEvent): void => {
         event.preventDefault();
+        button.classList.remove("active");
         this.virtualInput = { ...ZERO_INPUT };
       };
 
@@ -970,6 +975,7 @@ export class WulandScene extends Phaser.Scene {
       button.addEventListener("pointerup", deactivate);
       button.addEventListener("pointercancel", deactivate);
       button.addEventListener("lostpointercapture", () => {
+        button.classList.remove("active");
         this.virtualInput = { ...ZERO_INPUT };
       });
     });
@@ -990,14 +996,65 @@ export class WulandScene extends Phaser.Scene {
       event.preventDefault();
       this.giftSelectedItem();
     });
+    root.querySelector('[data-mobile-action="chat"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.game.events.emit("wuland:focusChat");
+    });
     root.querySelector('[data-mobile-action="help"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       this.game.events.emit("wuland:toggleHelp");
     });
-    root.querySelector('[data-mobile-action="debug"]')?.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      this.game.events.emit("wuland:toggleDebug");
-    });
+  }
+
+  private updateMobileControlHints(player: PlayerNetworkState): void {
+    if (!this.mobileRoot) {
+      return;
+    }
+
+    const selectedItem = player.inventory[player.selectedHotbarSlot];
+    const selectedDefinition = selectedItem?.itemDefinitionId
+      ? ITEM_DEFINITIONS[selectedItem.itemDefinitionId]
+      : null;
+    const useButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="use"]');
+    const interactButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="pickup"]');
+    const giftButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="gift"]');
+
+    if (useButton) {
+      const canUse = selectedDefinition?.itemType === "consumable";
+      useButton.disabled = !canUse;
+      useButton.textContent = selectedDefinition && isCakeItemDefinitionId(selectedDefinition.itemDefinitionId)
+        ? "Eat"
+        : "Use";
+      useButton.title = canUse && selectedDefinition
+        ? `Use ${selectedDefinition.displayName}`
+        : "Select a cake or consumable first";
+    }
+
+    if (interactButton) {
+      const hasInteraction =
+        Boolean(this.connectionState.nearbyPortalId) ||
+        this.connectionState.nearMerchant ||
+        Boolean(this.connectionState.nearbyPickupName);
+
+      interactButton.disabled = !hasInteraction;
+      interactButton.textContent = this.connectionState.nearMerchant
+        ? "Shop"
+        : this.connectionState.nearbyPortalId
+          ? "Door"
+          : this.connectionState.nearbyPickupName
+            ? "Pick"
+            : "Act";
+      interactButton.title = hasInteraction
+        ? this.connectionState.portalPrompt || this.connectionState.nearbyPickupName || "Interact"
+        : "Stand near a door, item, or merchant";
+    }
+
+    if (giftButton) {
+      giftButton.disabled = !this.connectionState.nearbyGiftPlayerName;
+      giftButton.title = this.connectionState.nearbyGiftPlayerName
+        ? `Gift selected cake to ${this.connectionState.nearbyGiftPlayerName}`
+        : "Stand near a player with a cake selected";
+    }
   }
 
   private sendMovementInputForControls(time: number): void {
@@ -2530,6 +2587,8 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.off("wuland:sendChat", this.sendChatMessage, this);
     this.game.events.off("wuland:setGodMode", this.setGodMode, this);
     window.removeEventListener("blur", this.handleWindowBlur);
+    window.removeEventListener("resize", this.handleViewportControlsChange);
+    window.removeEventListener("orientationchange", this.handleViewportControlsChange);
     this.input.off("pointerdown", this.handlePointerDown, this);
     this.mobileRoot?.remove();
     this.mobileRoot = undefined;
@@ -2999,6 +3058,10 @@ const distanceBetween = (
 
 const parseCssColor = (color: string): number =>
   Number.parseInt(color.replace("#", ""), 16);
+
+const shouldUseTouchControls = (): boolean =>
+  window.matchMedia("(pointer: coarse)").matches ||
+  window.innerWidth <= 860;
 
 const isGameplayInputBlocked = (): boolean => {
   const active = document.activeElement;

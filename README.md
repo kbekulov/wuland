@@ -63,6 +63,13 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 
 ## Movement And World Controls
 
+- Phone-first controls:
+  - Tap the map to move toward a location.
+  - Use the on-screen D-pad for precise movement around doors, buildings, and combat.
+  - Tap a hotbar slot to select a weapon or cake.
+  - Tap an enemy, NPC, or player to select a target, then press the on-screen Attack button.
+  - The on-screen action buttons change context: Act becomes Door, Shop, or Pick when something nearby can be used.
+  - The Chat button opens the chat input on phones; chat starts minimized on touch layouts to protect the playfield.
 - `WASD` or arrow keys: move.
 - Mouse click or touchscreen tap: move toward a target.
 - Mobile joystick or D-pad: direct movement.
@@ -70,6 +77,8 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 - Press `F` near an interior exit door to return to WULAND.
 
 Keyboard or joystick movement interrupts click/tap movement. The server remains authoritative for movement, map transitions, collision, and final position.
+
+The HUD is now phone-centric: critical status stays in a compact top strip, the hotbar becomes a larger thumb-friendly dock in portrait, and long panels such as chat, help, and the merchant shop open as mobile-friendly overlays instead of permanently covering the world.
 
 ## Multi-Map WULAND
 
@@ -87,6 +96,12 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
 
 ## Combat Controls
 
+- Phone/touch:
+  - Tap a target, then tap `Attack`.
+  - Tap `Eat` or `Use` for the selected consumable.
+  - Tap `Door`, `Shop`, `Pick`, or `Act` for the nearest contextual interaction.
+  - Tap `Gift` near another player with a cake selected.
+  - Tap `Chat` to open chat; sending or leaving the input returns control to the character.
 - `1` through `9`: select a hotbar slot.
 - `Space`: attack with the selected weapon.
 - `E`: use the selected consumable.
@@ -279,3 +294,5 @@ Phase 10 fixes merchant buying, adds persisted prototype money, item prices, pur
 Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-item sprites, human-shaped NPCs, anchored speech bubbles, and cleaner doorway labels.
 
 The current gameplay patch lets NPCs explore all maps, allows attacks against NPCs and other players including sleeping players, respawns defeated NPCs/players at random walkable map locations, and drops only one item from stacked inventory slots.
+
+The current mobile polish patch makes WULAND phone-first by collapsing chat by default on touch layouts, adding a Chat touch button, making action buttons contextual, enlarging the portrait hotbar, and reshaping the HUD/shop/help overlays around thumb play.

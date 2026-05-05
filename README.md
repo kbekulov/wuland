@@ -295,4 +295,4 @@ Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-i
 
 The current gameplay patch lets NPCs explore all maps, allows attacks against NPCs and other players including sleeping players, respawns defeated NPCs/players at random walkable map locations, and drops only one item from stacked inventory slots.
 
-The current mobile polish patch makes WULAND phone-first by collapsing chat by default on touch layouts, adding a Chat touch button, making action buttons contextual, enlarging the portrait hotbar, and reshaping the HUD/shop/help overlays around thumb play.
+The current mobile polish patch makes WULAND phone-first by collapsing chat by default on touch layouts, adding a Chat touch button, making action buttons contextual, enlarging the portrait hotbar, compressing the landscape HUD into a tiny status chip, and reshaping the HUD/shop/help overlays around thumb play.

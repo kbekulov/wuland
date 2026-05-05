@@ -1405,6 +1405,77 @@ body[data-touch-controls] .mobile-controls {
 }
 
 @media (pointer: coarse), (max-width: 860px) {
+  .wuland-hud {
+    padding: max(6px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+  }
+
+  .hud-card {
+    display: grid;
+    gap: 6px;
+    width: min(250px, 44vw);
+    max-height: none;
+    overflow: visible;
+    border-radius: 12px;
+    background: rgba(10, 22, 23, 0.74);
+    padding: 8px;
+  }
+
+  .hud-header {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hud-header .eyebrow,
+  .hud-actions,
+  .hud-class,
+  .hud-location,
+  .hud-active-item,
+  .hud-money,
+  .hud-hint,
+  .hud-network,
+  .hud-counts,
+  .hud-section,
+  .hud-debug {
+    display: none;
+  }
+
+  .hud-header strong {
+    max-width: 100%;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .hud-combat {
+    margin-top: 0;
+  }
+
+  .hud-meter {
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.18);
+    padding: 5px 6px;
+  }
+
+  .hud-meter .eyebrow {
+    display: none;
+  }
+
+  .hud-meter strong {
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .meter-track {
+    height: 6px;
+  }
+
+  .wuland-hud[data-connection-status="error"] .hud-network,
+  .wuland-hud[data-connection-status="disconnected"] .hud-network {
+    display: flex;
+    margin-top: 0;
+    padding: 6px;
+  }
+
   .mobile-controls {
     display: flex;
   }
@@ -1444,21 +1515,86 @@ body[data-touch-controls] .mobile-controls {
     bottom: max(172px, calc(env(safe-area-inset-bottom) + 172px));
   }
 
+  .hotbar-slot small {
+    display: none;
+  }
+
   .chat-window {
     top: max(112px, calc(env(safe-area-inset-top) + 112px));
     bottom: auto;
   }
 
   .wuland-hud[data-chat-collapsed="true"] .chat-window {
-    width: 92px;
-  }
-
-  .wuland-hud[data-chat-collapsed="true"] .chat-window header {
-    padding: 6px;
-  }
-
-  .wuland-hud[data-chat-collapsed="true"] .chat-window strong {
     display: none;
+  }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .wuland-hud {
+    padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+  }
+
+  .hud-card {
+    width: min(230px, 30vw);
+    padding: 7px;
+  }
+
+  .hud-header strong {
+    font-size: 15px;
+  }
+
+  .mobile-controls {
+    gap: 8px;
+    padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+
+  .mobile-dpad {
+    grid-template-columns: repeat(3, 50px);
+    grid-template-rows: repeat(3, 46px);
+    gap: 5px;
+  }
+
+  .mobile-actions {
+    grid-template-columns: repeat(2, 66px);
+    gap: 6px;
+  }
+
+  .mobile-actions [data-mobile-action="attack"] {
+    min-height: 58px;
+  }
+
+  .mobile-actions button,
+  .mobile-dpad button {
+    min-height: 46px;
+  }
+
+  .hotbar-panel {
+    left: 50%;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: min(470px, calc(100vw - 390px));
+  }
+
+  .hotbar-slots {
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .hotbar-slot {
+    min-height: 52px;
+    padding: 7px 2px 4px;
+  }
+
+  .item-icon-image,
+  .item-icon-fallback {
+    width: 28px;
+    height: 28px;
+  }
+
+  .chat-window {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    width: min(330px, calc(100vw - 280px));
+    max-height: calc(100vh - 18px);
   }
 }
 

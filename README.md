@@ -67,9 +67,11 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
   - Tap the map to move toward a location.
   - Use the on-screen D-pad for precise movement around doors, buildings, and combat.
   - Tap a hotbar slot to select a weapon or cake.
-  - Tap an enemy, NPC, or player to select a target, then press the on-screen Attack button.
-  - The on-screen action buttons change context: Act becomes Door, Shop, or Pick when something nearby can be used.
-  - The Chat button opens the chat input on phones; chat starts minimized on touch layouts to protect the playfield.
+  - In landscape, the hotbar sits at the top center, the player HP chip stays top-left, and the menu button stays top-right.
+  - Tap an enemy, NPC, or player to select a target, then press the large primary button.
+  - The large primary button changes context: Attack, Shop, Door, Pick, Eat, or Use.
+  - `Act` opens the secondary action wheel for Use, Open, Gift, Chat, and Help.
+  - Chat starts minimized on touch layouts to protect the playfield.
 - `WASD` or arrow keys: move.
 - Mouse click or touchscreen tap: move toward a target.
 - Mobile joystick or D-pad: direct movement.
@@ -78,7 +80,7 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 
 Keyboard or joystick movement interrupts click/tap movement. The server remains authoritative for movement, map transitions, collision, and final position.
 
-The HUD is now phone-centric: critical status stays in a compact top strip, the hotbar becomes a larger thumb-friendly dock in portrait, and long panels such as chat, help, and the merchant shop open as mobile-friendly overlays instead of permanently covering the world.
+The HUD is now phone-centric: critical status stays in a compact player chip, landscape play follows a 2D RPG layout with top hotbar plus bottom-corner movement/action zones, and long panels such as chat, help, and the merchant shop open as mobile-friendly overlays instead of permanently covering the world.
 
 ## Multi-Map WULAND
 
@@ -97,11 +99,10 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
 ## Combat Controls
 
 - Phone/touch:
-  - Tap a target, then tap `Attack`.
-  - Tap `Eat` or `Use` for the selected consumable.
-  - Tap `Door`, `Shop`, `Pick`, or `Act` for the nearest contextual interaction.
-  - Tap `Gift` near another player with a cake selected.
-  - Tap `Chat` to open chat; sending or leaving the input returns control to the character.
+  - Tap a target, then tap the large primary button.
+  - The primary button performs the most relevant action: Attack, Door, Shop, Pick, Eat, or Use.
+  - Tap `Act` for the radial secondary menu, then choose Use, Open, Gift, Chat, or Help.
+  - Tap the back arrow button to close the action wheel or clear the current target/path.
 - `1` through `9`: select a hotbar slot.
 - `Space`: attack with the selected weapon.
 - `E`: use the selected consumable.
@@ -295,4 +296,4 @@ Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-i
 
 The current gameplay patch lets NPCs explore all maps, allows attacks against NPCs and other players including sleeping players, respawns defeated NPCs/players at random walkable map locations, and drops only one item from stacked inventory slots.
 
-The current mobile polish patch makes WULAND phone-first by collapsing chat by default on touch layouts, adding a Chat touch button, making action buttons contextual, enlarging the portrait hotbar, compressing the landscape HUD into a tiny status chip, and reshaping the HUD/shop/help overlays around thumb play.
+The current mobile polish patch makes WULAND phone-first by collapsing chat by default on touch layouts, using a reference-style landscape layout with top hotbar, compact player chip, menu button, circular D-pad, contextual primary button, and ACT radial menu, and reshaping the HUD/shop/help overlays around thumb play.

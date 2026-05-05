@@ -938,19 +938,26 @@ export class WulandScene extends Phaser.Scene {
     const root = document.createElement("div");
     root.className = "mobile-controls";
     root.innerHTML = `
+      <div class="mobile-menu-stack" aria-label="Menu controls">
+        <button type="button" data-mobile-action="menu" aria-label="Open menu">☰<span>Menu</span></button>
+      </div>
       <div class="mobile-dpad" aria-label="Movement controls">
         <button type="button" data-mobile-dir="up" aria-label="Move up">↑</button>
         <button type="button" data-mobile-dir="left" aria-label="Move left">←</button>
         <button type="button" data-mobile-dir="down" aria-label="Move down">↓</button>
         <button type="button" data-mobile-dir="right" aria-label="Move right">→</button>
       </div>
-      <div class="mobile-actions" aria-label="Action controls">
-        <button type="button" data-mobile-action="attack">Attack</button>
-        <button type="button" data-mobile-action="pickup">Act</button>
-        <button type="button" data-mobile-action="use">Use</button>
-        <button type="button" data-mobile-action="gift">Gift</button>
-        <button type="button" data-mobile-action="chat">Chat</button>
-        <button type="button" data-mobile-action="help">Help</button>
+      <div class="mobile-action-zone" aria-label="Action controls">
+        <div class="mobile-radial-menu" data-mobile-radial-menu aria-label="More actions">
+          <button type="button" data-mobile-action="use">Use</button>
+          <button type="button" data-mobile-action="pickup">Open</button>
+          <button type="button" data-mobile-action="gift">Gift</button>
+          <button type="button" data-mobile-action="chat">Chat</button>
+          <button type="button" data-mobile-action="help">Help</button>
+        </div>
+        <button type="button" class="mobile-primary-action" data-mobile-action="primary">Attack</button>
+        <button type="button" class="mobile-act-toggle" data-mobile-action="act-toggle">Act</button>
+        <button type="button" class="mobile-cancel-action" data-mobile-action="cancel" aria-label="Cancel action">↩</button>
       </div>
     `;
     uiRoot.appendChild(root);
@@ -980,29 +987,53 @@ export class WulandScene extends Phaser.Scene {
       });
     });
 
-    root.querySelector('[data-mobile-action="attack"]')?.addEventListener("pointerdown", (event) => {
+    root.querySelector('[data-mobile-action="primary"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
-      this.sendWeaponAttack();
+      this.handleMobilePrimaryAction();
     });
     root.querySelector('[data-mobile-action="use"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      this.closeMobileActionMenu();
       this.useSelectedItem();
     });
     root.querySelector('[data-mobile-action="pickup"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      this.closeMobileActionMenu();
       this.interactOrPickup();
     });
     root.querySelector('[data-mobile-action="gift"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      this.closeMobileActionMenu();
       this.giftSelectedItem();
     });
     root.querySelector('[data-mobile-action="chat"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      this.closeMobileActionMenu();
       this.game.events.emit("wuland:focusChat");
     });
     root.querySelector('[data-mobile-action="help"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      this.closeMobileActionMenu();
       this.game.events.emit("wuland:toggleHelp");
+    });
+    root.querySelector('[data-mobile-action="menu"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.closeMobileActionMenu();
+      this.game.events.emit("wuland:toggleHelp");
+    });
+    root.querySelector('[data-mobile-action="act-toggle"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.toggleMobileActionMenu();
+    });
+    root.querySelector('[data-mobile-action="cancel"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      if (this.mobileRoot?.classList.contains("actions-open")) {
+        this.closeMobileActionMenu();
+        return;
+      }
+
+      this.selectCombatTarget();
+      this.clearClickTarget(true);
     });
   }
 
@@ -1018,6 +1049,19 @@ export class WulandScene extends Phaser.Scene {
     const useButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="use"]');
     const interactButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="pickup"]');
     const giftButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="gift"]');
+    const primaryButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="primary"]');
+    const actButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="act-toggle"]');
+    const primary = this.mobilePrimaryAction(selectedDefinition);
+
+    if (primaryButton) {
+      primaryButton.textContent = primary.label;
+      primaryButton.title = primary.title;
+      primaryButton.dataset.primaryAction = primary.kind;
+    }
+
+    if (actButton) {
+      actButton.textContent = this.mobileRoot.classList.contains("actions-open") ? "Close" : "Act";
+    }
 
     if (useButton) {
       const canUse = selectedDefinition?.itemType === "consumable";
@@ -1054,6 +1098,71 @@ export class WulandScene extends Phaser.Scene {
       giftButton.title = this.connectionState.nearbyGiftPlayerName
         ? `Gift selected cake to ${this.connectionState.nearbyGiftPlayerName}`
         : "Stand near a player with a cake selected";
+    }
+  }
+
+  private handleMobilePrimaryAction(): void {
+    const localPlayer = this.latestPlayers.get(this.profile.playerId);
+    const selectedItem = localPlayer?.inventory[localPlayer.selectedHotbarSlot];
+    const selectedDefinition = selectedItem?.itemDefinitionId
+      ? ITEM_DEFINITIONS[selectedItem.itemDefinitionId]
+      : null;
+    const primary = this.mobilePrimaryAction(selectedDefinition);
+
+    this.closeMobileActionMenu();
+
+    if (primary.kind === "interact") {
+      this.interactOrPickup();
+      return;
+    }
+
+    if (primary.kind === "use") {
+      this.useSelectedItem();
+      return;
+    }
+
+    this.sendWeaponAttack();
+  }
+
+  private mobilePrimaryAction(
+    selectedDefinition: (typeof ITEM_DEFINITIONS)[ItemDefinitionId] | null
+  ): { kind: "attack" | "interact" | "use"; label: string; title: string } {
+    if (this.connectionState.nearMerchant) {
+      return { kind: "interact", label: "Shop", title: "Open the merchant shop" };
+    }
+
+    if (this.connectionState.nearbyPortalId) {
+      return { kind: "interact", label: "Door", title: this.connectionState.portalPrompt || "Use nearby door" };
+    }
+
+    if (this.connectionState.nearbyPickupName) {
+      return { kind: "interact", label: "Pick", title: `Pick up ${this.connectionState.nearbyPickupName}` };
+    }
+
+    if (selectedDefinition?.itemType === "consumable") {
+      return {
+        kind: "use",
+        label: isCakeItemDefinitionId(selectedDefinition.itemDefinitionId) ? "Eat" : "Use",
+        title: `Use ${selectedDefinition.displayName}`
+      };
+    }
+
+    return { kind: "attack", label: "Attack", title: "Attack with selected weapon" };
+  }
+
+  private toggleMobileActionMenu(): void {
+    this.mobileRoot?.classList.toggle("actions-open");
+    const actButton = this.mobileRoot?.querySelector<HTMLButtonElement>('[data-mobile-action="act-toggle"]');
+    if (actButton) {
+      actButton.textContent = this.mobileRoot?.classList.contains("actions-open") ? "Close" : "Act";
+    }
+  }
+
+  private closeMobileActionMenu(): void {
+    this.mobileRoot?.classList.remove("actions-open");
+    const actButton = this.mobileRoot?.querySelector<HTMLButtonElement>('[data-mobile-action="act-toggle"]');
+    if (actButton) {
+      actButton.textContent = "Act";
     }
   }
 

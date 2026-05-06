@@ -102,12 +102,13 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
 - Phone/touch:
   - Tap a target, then tap the large primary button.
   - The primary button performs the most relevant action: Attack, Door, Shop, Pick, Eat, or Use.
-  - Tap `Act` for the radial secondary menu, then choose Use, Open, Gift, Chat, or Help.
-  - Tap the settings button for full status, connection information, and controls help.
+  - The primary Attack, Act, and Settings controls use white Game-icons.net silhouettes instead of text labels.
+  - Tap `Act` for the radial secondary menu, then choose Use, Open, Gift, Pet, Chat, or Help.
+  - Tap the settings icon for full status, connection information, and controls help.
 - `1` through `9`: select a hotbar slot.
 - `Space`: attack with the selected weapon.
 - `E`: use the selected consumable.
-- `F`: use a nearby door, pick up a nearby dropped item, or open the merchant shop when near the merchant.
+- `F`: use a nearby door, pet a nearby cat or dog, pick up a nearby dropped item, or open the merchant shop when near the merchant.
 - `G`: gift the selected cake to a nearby online player.
 - Click or tap an enemy, NPC, or another player: select it as your weapon target.
 - Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop one item from that slot onto the map.
@@ -134,7 +135,7 @@ Weapons:
 - Magic Wand: longer-range magic projectile with medium damage.
 - Rock: thrown blunt projectile with lower damage.
 
-Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current icons use CC0 assets from Kenney and OpenGameArt, with credits in `CREDITS.md` and `client/public/assets/CREDITS.md`.
+Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current item icons use CC0 assets from Kenney and OpenGameArt. Touch control icons use Game-icons.net silhouettes. Credits live in `CREDITS.md` and `client/public/assets/CREDITS.md`.
 
 ## Merchant and Cakes
 
@@ -172,6 +173,8 @@ Ambient NPCs are rendered as simple human-shaped characters with distinct outfit
 - Security Guard in WULAND and near the RPA CoE entrance.
 - HR Specialist in BusyBeet and Din Break.
 - Intern in WULAND.
+
+WULAND also has ambient cats and dogs. They wander, run between rooms, nap, meow, purr, bark, and react to players. Stand near a cat or dog and use `F` on desktop or `Act > Pet` on touch devices. Pet reactions include happy purrs/wags, running away, licking, or a tiny bite.
 
 The chat window is visible during gameplay and can be minimized. Chat is global in the chat window, with off-map messages labeled by map name. Speech bubbles only appear above players, NPCs, and the merchant in the same map. They stay anchored to the speaker while the speaker moves, then fade out. Messages are trimmed, capped at 140 characters, and rate-limited to about one message per second.
 
@@ -297,4 +300,4 @@ Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-i
 
 The current gameplay patch lets NPCs explore all maps, allows attacks against NPCs and other players including sleeping players, respawns defeated NPCs/players at random walkable map locations, and drops only one item from stacked inventory slots.
 
-The current mobile polish patch makes WULAND phone-first by using a gacha-style draggable joystick, portrait chat-at-top/right-hotbar layout, compact circular action buttons, a settings/status screen, cached hotbar icons to prevent mobile flicker, a reference-style landscape layout, and ACT radial menu.
+The current mobile polish patch makes WULAND phone-first by using a gacha-style draggable joystick, portrait chat-at-top/right-hotbar layout, compact circular icon action buttons, a settings/status screen, cached hotbar icons to prevent mobile flicker, a reference-style landscape layout, and a centered ACT radial menu.

@@ -58,6 +58,8 @@ export class UIScene extends Phaser.Scene {
     nearbyPortalId: "",
     portalPrompt: "",
     nearbyGiftPlayerName: "",
+    nearbyPetNpcId: "",
+    nearbyPetName: "",
     currentMapId: WULAND_MAP_ID,
     currentMapName: getMapDisplayName(WULAND_MAP_ID),
     totalDroppedItems: 0,
@@ -172,7 +174,6 @@ export class UIScene extends Phaser.Scene {
       </section>
       <section class="chat-window" data-chat-window>
         <header>
-          <strong>Chat</strong>
           <button type="button" class="secondary small" data-action="toggle-chat">Min</button>
         </header>
         <div class="chat-messages" data-chat-messages></div>
@@ -513,6 +514,10 @@ export class UIScene extends Phaser.Scene {
 
     if (this.connection.nearbyGiftPlayerName) {
       hints.push(prefersTouchLayout() ? `Gift: ${this.connection.nearbyGiftPlayerName}` : `G: gift to ${this.connection.nearbyGiftPlayerName}`);
+    }
+
+    if (this.connection.nearbyPetName) {
+      hints.push(prefersTouchLayout() ? `Pet: ${this.connection.nearbyPetName}` : `F: pet ${this.connection.nearbyPetName}`);
     }
 
     return hints.join(" | ");

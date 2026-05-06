@@ -770,25 +770,26 @@ label span,
   background: rgba(10, 22, 23, 0.88);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
   color: #fff8e7;
+  overflow: hidden;
   pointer-events: auto;
 }
 
 .chat-window header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
-  min-height: 42px;
-  padding: 7px 9px;
+  min-height: 34px;
+  padding: 6px 8px 0;
 }
 
 .chat-messages {
   display: grid;
   align-content: end;
   gap: 5px;
-  min-height: 112px;
+  min-height: 96px;
   overflow: auto;
-  padding: 0 9px 8px;
+  padding: 2px 9px 8px;
 }
 
 .chat-messages p {
@@ -1318,7 +1319,13 @@ body[data-touch-controls] .mobile-controls {
   height: 176px;
 }
 
+.mobile-action-zone > button {
+  display: grid;
+  place-items: center;
+}
+
 .mobile-action-zone .mobile-primary-action {
+  --mobile-icon: url("/assets/ui/attack.svg");
   position: absolute;
   right: 0;
   bottom: 68px;
@@ -1335,7 +1342,13 @@ body[data-touch-controls] .mobile-controls {
   text-transform: uppercase;
 }
 
+.mobile-action-zone .mobile-primary-action[data-primary-action="interact"],
+.mobile-action-zone .mobile-primary-action[data-primary-action="use"] {
+  --mobile-icon: url("/assets/ui/act.svg");
+}
+
 .mobile-action-zone .mobile-act-toggle {
+  --mobile-icon: url("/assets/ui/act.svg");
   position: absolute;
   right: 86px;
   bottom: 42px;
@@ -1350,6 +1363,7 @@ body[data-touch-controls] .mobile-controls {
 }
 
 .mobile-action-zone .mobile-settings-action {
+  --mobile-icon: url("/assets/ui/settings.svg");
   position: absolute;
   right: 8px;
   bottom: 0;
@@ -1362,6 +1376,35 @@ body[data-touch-controls] .mobile-controls {
     rgba(14, 29, 30, 0.78);
   color: #fff8e7;
   font-size: 20px;
+}
+
+.mobile-action-zone > button .mobile-control-icon {
+  display: block;
+  width: 42px;
+  height: 42px;
+  background: currentColor;
+  mask: var(--mobile-icon) center / contain no-repeat;
+  -webkit-mask: var(--mobile-icon) center / contain no-repeat;
+}
+
+.mobile-action-zone > .mobile-primary-action .mobile-control-icon {
+  width: 50px;
+  height: 50px;
+}
+
+.mobile-action-zone > .mobile-settings-action .mobile-control-icon,
+.mobile-action-zone > .mobile-act-toggle .mobile-control-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.mobile-action-zone > button .mobile-control-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .mobile-radial-menu {
@@ -1418,6 +1461,11 @@ body[data-touch-controls] .mobile-controls {
 .mobile-radial-menu [data-mobile-action="gift"] {
   right: 12px;
   top: 56px;
+}
+
+.mobile-radial-menu [data-mobile-action="pet"] {
+  left: 58px;
+  top: 52px;
 }
 
 .mobile-radial-menu [data-mobile-action="chat"] {
@@ -1704,6 +1752,12 @@ body[data-touch-controls] .mobile-controls {
     transform: translateY(-50%);
   }
 
+  .mobile-radial-menu [data-mobile-action="pet"] {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+
   .mobile-radial-menu [data-mobile-action="chat"] {
     left: 66px;
     bottom: 32px;
@@ -1921,12 +1975,12 @@ body[data-touch-controls] .mobile-controls {
   }
 
   .hotbar-panel {
-    --touch-slot-size: clamp(44px, 12vw, 52px);
+    --touch-slot-size: clamp(36px, 9.8vw, 42px);
     left: auto;
     right: max(10px, env(safe-area-inset-right));
-    top: max(154px, calc(env(safe-area-inset-top) + 154px));
+    top: max(150px, calc(env(safe-area-inset-top) + 150px));
     bottom: auto;
-    width: calc(var(--touch-slot-size) + 12px);
+    width: calc(var(--touch-slot-size) + 10px);
     transform: none;
   }
 
@@ -1942,19 +1996,23 @@ body[data-touch-controls] .mobile-controls {
   }
 
   .chat-window header {
-    min-height: 30px;
-    padding: 4px 8px;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+    min-height: 0;
+    padding: 0;
   }
 
   .chat-messages {
-    min-height: 34px;
-    max-height: 42px;
-    padding: 0 8px 5px;
+    min-height: 54px;
+    max-height: 70px;
+    padding: 8px 82px 5px 8px;
   }
 
   .chat-form {
     gap: 5px;
-    padding: 6px;
+    padding: 5px 6px 6px;
   }
 
   .chat-form input {
@@ -1965,9 +2023,9 @@ body[data-touch-controls] .mobile-controls {
     grid-template-columns: 1fr;
     grid-template-rows: none;
     grid-auto-rows: var(--touch-slot-size);
-    gap: 5px;
+    gap: 4px;
     height: auto;
-    padding: 6px;
+    padding: 5px;
   }
 
   .hotbar-slot {
@@ -1985,8 +2043,8 @@ body[data-touch-controls] .mobile-controls {
 
   .item-icon-image,
   .item-icon-fallback {
-    width: calc(var(--touch-slot-size) - 18px);
-    height: calc(var(--touch-slot-size) - 18px);
+    width: calc(var(--touch-slot-size) - 14px);
+    height: calc(var(--touch-slot-size) - 14px);
   }
 
   .mobile-action-zone button {

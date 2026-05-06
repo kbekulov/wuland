@@ -44,6 +44,8 @@ import {
   isMoveTargetRequest,
   isMovementInput,
   isPickupItemRequest,
+  isPetNpcRequest,
+  isPetNpcType,
   isPortalTransitionRequest,
   isValidLocalProgress,
   isValidMapPosition,
@@ -70,6 +72,7 @@ import {
   type LocalProgress,
   type MovementInput,
   type MoveTargetRequest,
+  type PetNpcRequest,
   type PlayerNetworkState,
   type PlayerProfile,
   type PortalDefinition,
@@ -95,6 +98,7 @@ const BASIC_FACING_DOT = Math.cos((85 * Math.PI) / 180);
 const WEAPON_ATTACK_COOLDOWN_MS = 420;
 const PICKUP_RANGE = 66;
 const GIFT_RANGE = 78;
+const PET_RANGE = 76;
 const PORTAL_INTERACT_RANGE = 84;
 const DROP_OFFSET = 34;
 const NPC_TARGET_REACHED_DISTANCE = 12;
@@ -104,6 +108,8 @@ const NPC_SPEECH_MIN_MS = 7000;
 const NPC_SPEECH_MAX_MS = 13500;
 const NPC_SPEECH_DURATION_MS = 3600;
 const NPC_MAP_CHANGE_CHANCE = 0.42;
+const PET_REACTION_DURATION_MS = 2600;
+const PET_BITE_DAMAGE = 4;
 const FORCE_DELETED_CLOSE_CODE = 4008;
 const PURCHASE_LOG_PREFIX = "[WULAND purchase]";
 
@@ -418,6 +424,19 @@ export class WulandRoom extends Room<WulandRoomState> {
       this.giftSelectedItem(
         playerId,
         (message as { targetPlayerId?: string } | null | undefined)?.targetPlayerId
+      );
+    });
+
+    this.onMessage("petNpc", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isPetNpcRequest(message)) {
+        return;
+      }
+
+      this.petNpc(
+        playerId,
+        (message as PetNpcRequest | null | undefined)?.npcId
       );
     });
 
@@ -774,6 +793,12 @@ export class WulandRoom extends Room<WulandRoomState> {
           mapId: normalizeMapId(npc.mapId),
           text: npc.speechText
         });
+      }
+
+      if (isRestingPet(npc)) {
+        npc.moving = false;
+        this.persistNpcIfNeeded(npc, now);
+        return;
       }
 
       let target = this.npcTargets.get(npc.npcId);
@@ -1633,6 +1658,63 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.broadcastCombatEvent("gift", giver.playerId, receiver.playerId, receiver.x, receiver.y, 0, `${giver.name} gave you ${displayName}`, "#ffdeeb", item.itemDefinitionId);
   }
 
+  private petNpc(playerId: string, requestedNpcId?: string): void {
+    const player = this.state.players.get(playerId);
+    const now = Date.now();
+
+    if (!player || !canFight(player)) {
+      return;
+    }
+
+    const npc = requestedNpcId
+      ? this.state.npcs.get(requestedNpcId)
+      : nearestPetNpc(player, this.state.npcs, PET_RANGE);
+
+    if (
+      !npc ||
+      !isPetNpcType(npc.type) ||
+      npc.defeated ||
+      normalizeMapId(npc.mapId) !== normalizeMapId(player.mapId) ||
+      distance(player, npc) > PET_RANGE
+    ) {
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "No pet nearby", "#ffd8a8");
+      return;
+    }
+
+    const reaction = randomPetReaction(npc.type);
+    npc.speechText = reaction.speech;
+    npc.speechUntil = now + PET_REACTION_DURATION_MS;
+    npc.moving = false;
+    this.npcNextSpeechAt.set(npc.npcId, now + randomBetween(NPC_SPEECH_MIN_MS, NPC_SPEECH_MAX_MS));
+
+    if (reaction.kind === "run") {
+      this.npcTargets.set(npc.npcId, randomNpcTarget(npc));
+      this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
+    }
+
+    if (reaction.kind === "bite") {
+      this.damagePlayer(player, PET_BITE_DAMAGE, npc.npcId, now);
+    }
+
+    this.persistNpcIfNeeded(npc, now, true);
+    this.broadcastSpeechBubble({
+      sourceType: "npc",
+      sourceId: npc.npcId,
+      mapId: normalizeMapId(npc.mapId),
+      text: reaction.speech
+    });
+    this.broadcastCombatEvent(
+      "notice",
+      player.playerId,
+      npc.npcId,
+      npc.x,
+      npc.y,
+      0,
+      reaction.notice.replace("{name}", npc.displayName),
+      reaction.color
+    );
+  }
+
   private handleChat(playerId: string, rawText: string): void {
     const player = this.state.players.get(playerId);
     const now = Date.now();
@@ -2146,6 +2228,63 @@ const randomNpcTarget = (npc: WulandNpcSchema): NpcTravelTarget => {
     ...randomWalkablePosition(mapId),
     mapId
   };
+};
+
+const isRestingPet = (npc: WulandNpcSchema): boolean =>
+  isPetNpcType(npc.type) &&
+  ["Zzz", "Purr.", "Soft snore.", "Dreams about snacks."].includes(npc.speechText) &&
+  npc.speechUntil > Date.now();
+
+const nearestPetNpc = (
+  player: WulandPlayerSchema,
+  npcs: MapSchema<WulandNpcSchema>,
+  range: number
+): WulandNpcSchema | null => {
+  let best: WulandNpcSchema | null = null;
+  let bestDistance = range;
+
+  npcs.forEach((npc) => {
+    if (
+      !isPetNpcType(npc.type) ||
+      npc.defeated ||
+      normalizeMapId(npc.mapId) !== normalizeMapId(player.mapId)
+    ) {
+      return;
+    }
+
+    const distanceToNpc = distance(player, npc);
+
+    if (distanceToNpc <= bestDistance) {
+      best = npc;
+      bestDistance = distanceToNpc;
+    }
+  });
+
+  return best;
+};
+
+type PetReaction = {
+  kind: "happy" | "run" | "bite";
+  speech: string;
+  notice: string;
+  color: string;
+};
+
+const randomPetReaction = (type: AmbientNpcType): PetReaction => {
+  const catReactions: readonly PetReaction[] = [
+    { kind: "happy", speech: "Purr.", notice: "{name} purrs happily.", color: "#fff3bf" },
+    { kind: "happy", speech: "Meow!", notice: "{name} accepts the pet.", color: "#fff3bf" },
+    { kind: "run", speech: "Mrrrp!", notice: "{name} darts away.", color: "#d0ebff" },
+    { kind: "bite", speech: "Nibble!", notice: "{name} gives a tiny warning bite.", color: "#ffd8a8" }
+  ];
+  const dogReactions: readonly PetReaction[] = [
+    { kind: "happy", speech: "Woof!", notice: "{name} wags wildly.", color: "#fff3bf" },
+    { kind: "happy", speech: "Lick!", notice: "{name} licks your hand.", color: "#d8f5a2" },
+    { kind: "run", speech: "Zoom!", notice: "{name} runs a victory lap.", color: "#d0ebff" },
+    { kind: "bite", speech: "Nip!", notice: "{name} gives a tiny playful nip.", color: "#ffd8a8" }
+  ];
+
+  return randomChoice(type === "cat" ? catReactions : dogReactions);
 };
 
 const canFight = (player: WulandPlayerSchema): boolean =>

@@ -20,6 +20,7 @@ import {
   getMapDefinition,
   getMapDisplayName,
   isCakeItemDefinitionId,
+  isPetNpcType,
   portalAtPosition,
   portalsForMap,
   type AmbientNpcNetworkState,
@@ -171,6 +172,8 @@ export interface WulandConnectionState {
   nearbyPortalId: string;
   portalPrompt: string;
   nearbyGiftPlayerName: string;
+  nearbyPetNpcId: string;
+  nearbyPetName: string;
   currentMapId: WulandMapId;
   currentMapName: string;
   totalDroppedItems: number;
@@ -232,6 +235,8 @@ export class WulandScene extends Phaser.Scene {
     nearbyPortalId: "",
     portalPrompt: "",
     nearbyGiftPlayerName: "",
+    nearbyPetNpcId: "",
+    nearbyPetName: "",
     currentMapId: WULAND_MAP_ID,
     currentMapName: getMapDisplayName(WULAND_MAP_ID),
     totalDroppedItems: 0,
@@ -329,6 +334,8 @@ export class WulandScene extends Phaser.Scene {
       nearbyPortalId: "",
       portalPrompt: "",
       nearbyGiftPlayerName: "",
+      nearbyPetNpcId: "",
+      nearbyPetName: "",
       currentMapId: this.currentMapId,
       currentMapName: getMapDisplayName(this.currentMapId),
       totalDroppedItems: 0,
@@ -951,12 +958,22 @@ export class WulandScene extends Phaser.Scene {
           <button type="button" data-mobile-action="use">Use</button>
           <button type="button" data-mobile-action="pickup">Open</button>
           <button type="button" data-mobile-action="gift">Gift</button>
+          <button type="button" data-mobile-action="pet">Pet</button>
           <button type="button" data-mobile-action="chat">Chat</button>
           <button type="button" data-mobile-action="help">Help</button>
         </div>
-        <button type="button" class="mobile-primary-action" data-mobile-action="primary">Attack</button>
-        <button type="button" class="mobile-act-toggle" data-mobile-action="act-toggle">Act</button>
-        <button type="button" class="mobile-settings-action" data-mobile-action="settings" aria-label="Open settings">⚙</button>
+        <button type="button" class="mobile-primary-action" data-mobile-action="primary" aria-label="Attack">
+          <span class="mobile-control-icon" aria-hidden="true"></span>
+          <span class="mobile-control-label">Attack</span>
+        </button>
+        <button type="button" class="mobile-act-toggle" data-mobile-action="act-toggle" aria-label="Actions">
+          <span class="mobile-control-icon" aria-hidden="true"></span>
+          <span class="mobile-control-label">Act</span>
+        </button>
+        <button type="button" class="mobile-settings-action" data-mobile-action="settings" aria-label="Open settings">
+          <span class="mobile-control-icon" aria-hidden="true"></span>
+          <span class="mobile-control-label">Settings</span>
+        </button>
       </div>
     `;
     uiRoot.appendChild(root);
@@ -1014,6 +1031,11 @@ export class WulandScene extends Phaser.Scene {
       event.preventDefault();
       this.closeMobileActionMenu();
       this.giftSelectedItem();
+    });
+    root.querySelector('[data-mobile-action="pet"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.closeMobileActionMenu();
+      this.petNearbyAnimal();
     });
     root.querySelector('[data-mobile-action="chat"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -1097,18 +1119,19 @@ export class WulandScene extends Phaser.Scene {
     const useButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="use"]');
     const interactButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="pickup"]');
     const giftButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="gift"]');
+    const petButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="pet"]');
     const primaryButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="primary"]');
     const actButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="act-toggle"]');
     const primary = this.mobilePrimaryAction(selectedDefinition);
 
     if (primaryButton) {
-      primaryButton.textContent = primary.label;
+      setMobileButtonLabel(primaryButton, primary.label);
       primaryButton.title = primary.title;
       primaryButton.dataset.primaryAction = primary.kind;
     }
 
     if (actButton) {
-      actButton.textContent = this.mobileRoot.classList.contains("actions-open") ? "Close" : "Act";
+      setMobileButtonLabel(actButton, this.mobileRoot.classList.contains("actions-open") ? "Close" : "Act");
     }
 
     if (useButton) {
@@ -1146,6 +1169,13 @@ export class WulandScene extends Phaser.Scene {
       giftButton.title = this.connectionState.nearbyGiftPlayerName
         ? `Gift selected cake to ${this.connectionState.nearbyGiftPlayerName}`
         : "Stand near a player with a cake selected";
+    }
+
+    if (petButton) {
+      petButton.disabled = !this.connectionState.nearbyPetNpcId;
+      petButton.title = this.connectionState.nearbyPetName
+        ? `Pet ${this.connectionState.nearbyPetName}`
+        : "Stand near a cat or dog";
     }
   }
 
@@ -1202,7 +1232,7 @@ export class WulandScene extends Phaser.Scene {
     this.mobileRoot?.classList.toggle("actions-open");
     const actButton = this.mobileRoot?.querySelector<HTMLButtonElement>('[data-mobile-action="act-toggle"]');
     if (actButton) {
-      actButton.textContent = this.mobileRoot?.classList.contains("actions-open") ? "Close" : "Act";
+      setMobileButtonLabel(actButton, this.mobileRoot?.classList.contains("actions-open") ? "Close" : "Act");
     }
   }
 
@@ -1210,7 +1240,7 @@ export class WulandScene extends Phaser.Scene {
     this.mobileRoot?.classList.remove("actions-open");
     const actButton = this.mobileRoot?.querySelector<HTMLButtonElement>('[data-mobile-action="act-toggle"]');
     if (actButton) {
-      actButton.textContent = "Act";
+      setMobileButtonLabel(actButton, "Act");
     }
   }
 
@@ -1330,6 +1360,16 @@ export class WulandScene extends Phaser.Scene {
       return;
     }
 
+    if (this.connectionState.nearbyPickupName) {
+      this.room?.send("pickupItem", {});
+      return;
+    }
+
+    if (this.connectionState.nearbyPetNpcId) {
+      this.petNearbyAnimal();
+      return;
+    }
+
     this.room?.send("pickupItem", {});
   }
 
@@ -1347,6 +1387,16 @@ export class WulandScene extends Phaser.Scene {
     }
 
     this.room?.send("giftSelectedItem", {});
+  }
+
+  private petNearbyAnimal(): void {
+    if (!this.canSendGameplayAction("pet animal")) {
+      return;
+    }
+
+    this.room?.send("petNpc", {
+      npcId: this.connectionState.nearbyPetNpcId || undefined
+    });
   }
 
   private buyMerchantItem(itemDefinitionId: ItemDefinitionId): void {
@@ -1999,7 +2049,10 @@ export class WulandScene extends Phaser.Scene {
 
   private renderNpc(npc: AmbientNpcNetworkState): void {
     const definition = npcDefinitionFor(npc.npcId);
-    const textureKey = createCharacterTexture(this, npcCharacterProfile(npc));
+    const isPet = isPetNpcType(npc.type);
+    const textureKey = isPet
+      ? createAnimalTexture(this, npc)
+      : createCharacterTexture(this, npcCharacterProfile(npc));
     let avatar = this.npcAvatars.get(npc.npcId);
 
     if (!avatar) {
@@ -2007,11 +2060,12 @@ export class WulandScene extends Phaser.Scene {
         .circle(0, 4, 30, 0xffffff, 0)
         .setStrokeStyle(3, 0xfff3bf, 1)
         .setVisible(false);
-      const sprite = this.add.sprite(0, 0, textureKey).setScale(1.02);
-      const hpBg = this.add.rectangle(-30, -67, 60, 6, 0x1f272a, 0.88).setOrigin(0, 0.5);
-      const hpFill = this.add.rectangle(-30, -67, 60, 6, 0x69db7c, 1).setOrigin(0, 0.5);
+      const sprite = this.add.sprite(0, 0, textureKey).setScale(isPet ? 1.08 : 1.02);
+      const hpY = isPet ? -42 : -67;
+      const hpBg = this.add.rectangle(-30, hpY, 60, 6, 0x1f272a, 0.88).setOrigin(0, 0.5);
+      const hpFill = this.add.rectangle(-30, hpY, 60, 6, 0x69db7c, 1).setOrigin(0, 0.5);
       const propLabel = this.add
-        .text(24, -7, npcPropLabel(npc.type), {
+        .text(isPet ? 18 : 24, isPet ? 5 : -7, npcPropLabel(npc.type), {
           fontFamily: "Arial, sans-serif",
           fontSize: "9px",
           color: "#172224",
@@ -2021,7 +2075,7 @@ export class WulandScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       const nameLabel = this.add
-        .text(0, -80, npc.displayName, {
+        .text(0, isPet ? -56 : -80, npc.displayName, {
           fontFamily: "Arial, sans-serif",
           fontSize: "12px",
           color: "#fff8e7",
@@ -2030,7 +2084,7 @@ export class WulandScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       const statusLabel = this.add
-        .text(0, -48, "", {
+        .text(0, isPet ? -28 : -48, "", {
           fontFamily: "Arial, sans-serif",
           fontSize: "11px",
           color: "#fff3bf",
@@ -2070,17 +2124,22 @@ export class WulandScene extends Phaser.Scene {
     avatar.target.set(npc.x, npc.y);
     avatar.lastState = npc;
     const hpPercent = npc.maxHp > 0 ? Phaser.Math.Clamp(npc.hp / npc.maxHp, 0, 1) : 0;
+    const petSleeping = isPet && npc.speechText === "Zzz" && npc.speechUntil > Date.now();
     avatar.nameLabel.setText(npc.displayName);
     avatar.propLabel.setText(npcPropLabel(npc.type));
     avatar.hpFill
       .setFillStyle(npc.defeated ? 0xff6b6b : hpPercent < 0.35 ? 0xffd43b : 0x69db7c)
       .setDisplaySize(60 * hpPercent, 6);
-    avatar.statusLabel.setText(npc.defeated ? "respawning" : "").setVisible(npc.defeated);
+    avatar.statusLabel
+      .setText(npc.defeated ? "respawning" : petSleeping ? "sleeping" : "")
+      .setVisible(npc.defeated || petSleeping);
     avatar.hpBg.setVisible(!npc.defeated);
     avatar.hpFill.setVisible(!npc.defeated);
     avatar.selectionRing.setVisible(npc.npcId === this.selectedNpcId && !npc.defeated && npc.hp > 0);
     avatar.sprite
       .setFlipX(npc.direction === "left")
+      .setAngle(petSleeping ? -18 : 0)
+      .setScale(isPet ? 1.08 : 1.02)
       .setAlpha(npc.defeated ? 0.46 : definition ? 1 : 0.95)
       .setTint(npc.defeated ? 0xffb3b3 : 0xffffff);
 
@@ -2097,7 +2156,7 @@ export class WulandScene extends Phaser.Scene {
         text: npc.speechText,
         expiresAt: npc.speechUntil,
         offsetX: 0,
-        offsetY: -80
+        offsetY: isPet ? -62 : -80
       });
     } else {
       this.destroySpeechBubble(`npc:${npc.npcId}`);
@@ -2179,20 +2238,27 @@ export class WulandScene extends Phaser.Scene {
       ? nearestGiftPlayerClient(player, this.latestPlayers, 78)
       : null;
     const nearbyGiftPlayerName = giftTarget?.name ?? "";
+    const petTarget = nearestPetNpcClient(player, this.latestNpcs, 76);
+    const nearbyPetNpcId = petTarget?.npcId ?? "";
+    const nearbyPetName = petTarget?.displayName ?? "";
 
     if (
       nearbyPickupName !== this.connectionState.nearbyPickupName ||
       nearbyPortalId !== this.connectionState.nearbyPortalId ||
       portalPrompt !== this.connectionState.portalPrompt ||
       nearMerchant !== this.connectionState.nearMerchant ||
-      nearbyGiftPlayerName !== this.connectionState.nearbyGiftPlayerName
+      nearbyGiftPlayerName !== this.connectionState.nearbyGiftPlayerName ||
+      nearbyPetNpcId !== this.connectionState.nearbyPetNpcId ||
+      nearbyPetName !== this.connectionState.nearbyPetName
     ) {
       this.setConnectionState({
         nearbyPickupName,
         nearbyPortalId,
         portalPrompt,
         nearMerchant,
-        nearbyGiftPlayerName
+        nearbyGiftPlayerName,
+        nearbyPetNpcId,
+        nearbyPetName
       });
     }
   }
@@ -3025,6 +3091,34 @@ const nearestGiftPlayerClient = (
   return best;
 };
 
+const nearestPetNpcClient = (
+  player: PlayerNetworkState,
+  npcs: Map<string, AmbientNpcNetworkState>,
+  range: number
+): AmbientNpcNetworkState | null => {
+  let best: AmbientNpcNetworkState | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  npcs.forEach((npc) => {
+    if (
+      !isPetNpcType(npc.type) ||
+      npc.defeated ||
+      npc.mapId !== player.mapId
+    ) {
+      return;
+    }
+
+    const distanceToNpc = distanceBetween(player, npc);
+
+    if (distanceToNpc <= range && distanceToNpc < bestDistance) {
+      best = npc;
+      bestDistance = distanceToNpc;
+    }
+  });
+
+  return best;
+};
+
 const nearbyPortalClient = (
   player: PlayerNetworkState,
   range: number
@@ -3101,7 +3195,9 @@ const heldItemOffset = (
 };
 
 const npcCharacterProfile = (npc: AmbientNpcNetworkState): CharacterTextureProfile => {
-  const visual = NPC_CHARACTER_VISUALS[npc.type] ?? NPC_CHARACTER_VISUALS.intern;
+  const visual = isPetNpcType(npc.type)
+    ? NPC_CHARACTER_VISUALS.intern
+    : NPC_CHARACTER_VISUALS[npc.type] ?? NPC_CHARACTER_VISUALS.intern;
 
   return {
     playerId: `npc-${npc.npcId}`,
@@ -3111,8 +3207,68 @@ const npcCharacterProfile = (npc: AmbientNpcNetworkState): CharacterTextureProfi
   };
 };
 
+const createAnimalTexture = (scene: Phaser.Scene, npc: AmbientNpcNetworkState): string => {
+  const definition = npcDefinitionFor(npc.npcId);
+  const color = definition?.color ?? (npc.type === "cat" ? 0x5a3a2e : 0x8b5e34);
+  const accent = definition?.accentColor ?? 0xfff3bf;
+  const textureKey = `animal-${npc.type}-${color.toString(16)}-${accent.toString(16)}`;
+
+  if (scene.textures.exists(textureKey)) {
+    return textureKey;
+  }
+
+  const graphics = scene.add.graphics({ x: -1000, y: -1000 });
+  graphics.fillStyle(0x000000, 0.22);
+  graphics.fillEllipse(32, 52, 38, 10);
+  graphics.fillStyle(color, 1);
+  graphics.fillEllipse(30, 35, 38, 22);
+  graphics.fillCircle(50, 29, npc.type === "dog" ? 14 : 12);
+  graphics.fillStyle(accent, 1);
+  graphics.fillEllipse(25, 38, 16, 9);
+  graphics.fillCircle(55, 30, 5);
+  graphics.fillStyle(0x11181a, 1);
+  graphics.fillCircle(54, 25, 2.2);
+  graphics.fillCircle(54, 33, 2.2);
+
+  if (npc.type === "cat") {
+    graphics.fillStyle(color, 1);
+    graphics.fillTriangle(43, 20, 48, 7, 53, 20);
+    graphics.fillTriangle(54, 20, 61, 9, 62, 24);
+    graphics.lineStyle(4, color, 1);
+    graphics.beginPath();
+    graphics.moveTo(13, 34);
+    graphics.lineTo(7, 27);
+    graphics.strokePath();
+  } else {
+    graphics.fillStyle(color, 1);
+    graphics.fillEllipse(42, 30, 8, 20);
+    graphics.fillEllipse(61, 30, 8, 20);
+    graphics.lineStyle(5, accent, 1);
+    graphics.beginPath();
+    graphics.moveTo(12, 34);
+    graphics.lineTo(5, 26);
+    graphics.strokePath();
+  }
+
+  graphics.generateTexture(textureKey, 64, 64);
+  graphics.destroy();
+  return textureKey;
+};
+
 const npcPropLabel = (type: AmbientNpcNetworkState["type"]): string =>
   NPC_PROP_LABELS[type] ?? "NPC";
+
+const setMobileButtonLabel = (button: HTMLButtonElement, label: string): void => {
+  const labelElement = button.querySelector<HTMLElement>(".mobile-control-label");
+
+  if (labelElement) {
+    labelElement.textContent = label;
+  } else {
+    button.textContent = label;
+  }
+
+  button.setAttribute("aria-label", label);
+};
 
 const NPC_CHARACTER_VISUALS = {
   "cleaning-lady": {
@@ -3194,7 +3350,7 @@ const NPC_CHARACTER_VISUALS = {
     }
   }
 } as const satisfies Record<
-  AmbientNpcNetworkState["type"],
+  Exclude<AmbientNpcNetworkState["type"], "cat" | "dog">,
   Omit<CharacterTextureProfile, "playerId">
 >;
 
@@ -3204,7 +3360,9 @@ const NPC_PROP_LABELS: Record<AmbientNpcNetworkState["type"], string> = {
   "hr-specialist": "HR",
   intern: "INT",
   "office-manager": "OPS",
-  "lost-client": "?"
+  "lost-client": "?",
+  cat: "CAT",
+  dog: "DOG"
 };
 
 const distanceBetween = (

@@ -1040,10 +1040,17 @@ export const AMBIENT_NPC_TYPES = [
   "hr-specialist",
   "intern",
   "office-manager",
-  "lost-client"
+  "lost-client",
+  "cat",
+  "dog"
 ] as const;
 
 export type AmbientNpcType = (typeof AMBIENT_NPC_TYPES)[number];
+export const PET_NPC_TYPES = ["cat", "dog"] as const;
+export type PetNpcType = (typeof PET_NPC_TYPES)[number];
+
+export const isPetNpcType = (value: unknown): value is PetNpcType =>
+  typeof value === "string" && (PET_NPC_TYPES as readonly string[]).includes(value);
 
 export interface AmbientNpcDefinition {
   npcId: string;
@@ -1204,6 +1211,84 @@ export const WULAND_AMBIENT_NPCS: AmbientNpcDefinition[] = [
       "I brought notes. I lost the notes.",
       "Everything is a learning opportunity, right?"
     ]
+  },
+  {
+    npcId: "cat-miso-overworld",
+    type: "cat",
+    displayName: "Miso",
+    mapId: "overworld",
+    x: 355,
+    y: 740,
+    wanderRadius: 180,
+    speed: 56,
+    color: 0x5a3a2e,
+    accentColor: 0xfff3bf,
+    speechLines: ["Meow.", "Purr.", "Zzz", "Mrrrp?"]
+  },
+  {
+    npcId: "cat-cache-rpa",
+    type: "cat",
+    displayName: "Cache",
+    mapId: "rpa_coe",
+    x: 590,
+    y: 330,
+    wanderRadius: 160,
+    speed: 58,
+    color: 0x343a40,
+    accentColor: 0xd0ebff,
+    speechLines: ["Meow.", "Purr.", "Zzz", "Walks across the keyboard."]
+  },
+  {
+    npcId: "cat-biscuit-kitchen",
+    type: "cat",
+    displayName: "Biscuit",
+    mapId: "kitchen",
+    x: 520,
+    y: 445,
+    wanderRadius: 170,
+    speed: 52,
+    color: 0xd08c45,
+    accentColor: 0xffec99,
+    speechLines: ["Meow.", "Purr.", "Zzz", "Investigates the cakes."]
+  },
+  {
+    npcId: "dog-ticket-overworld",
+    type: "dog",
+    displayName: "Ticket",
+    mapId: "overworld",
+    x: 965,
+    y: 620,
+    wanderRadius: 210,
+    speed: 68,
+    color: 0x8b5e34,
+    accentColor: 0xf8f0dc,
+    speechLines: ["Woof!", "Bark!", "Zzz", "Tail status: active."]
+  },
+  {
+    npcId: "dog-sprint-busybeet",
+    type: "dog",
+    displayName: "Sprint",
+    mapId: "busybeet",
+    x: 360,
+    y: 455,
+    wanderRadius: 170,
+    speed: 72,
+    color: 0x6f4e37,
+    accentColor: 0xffffff,
+    speechLines: ["Woof!", "Bark!", "Zzz", "Runs a tiny standup."]
+  },
+  {
+    npcId: "dog-nap-din-break",
+    type: "dog",
+    displayName: "Nap",
+    mapId: "din_break",
+    x: 555,
+    y: 390,
+    wanderRadius: 150,
+    speed: 45,
+    color: 0x2f2a27,
+    accentColor: 0xf1f3f5,
+    speechLines: ["Woof.", "Zzz", "Dreams about snacks.", "Soft snore."]
   }
 ] as const;
 
@@ -1256,6 +1341,10 @@ export interface ShopResultEvent {
 
 export interface GiftItemRequest {
   targetPlayerId?: string;
+}
+
+export interface PetNpcRequest {
+  npcId?: string;
 }
 
 export interface PortalTransitionRequest {
@@ -1562,6 +1651,12 @@ export const isGiftItemRequest = (value: unknown): value is GiftItemRequest =>
   value === null ||
   (isRecord(value) &&
     (value.targetPlayerId === undefined || typeof value.targetPlayerId === "string"));
+
+export const isPetNpcRequest = (value: unknown): value is PetNpcRequest =>
+  value === undefined ||
+  value === null ||
+  (isRecord(value) &&
+    (value.npcId === undefined || typeof value.npcId === "string"));
 
 export const isPortalTransitionRequest = (value: unknown): value is PortalTransitionRequest =>
   value === undefined ||

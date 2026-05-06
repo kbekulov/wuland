@@ -14,6 +14,14 @@
 | Cheese Cake | Pixel Platformer Food Expansion, `Tiles/tile_0094.png` | Kenney | CC0 1.0 | https://kenney.nl/assets/pixel-platformer-food-expansion | Fit to WULAND 48x48 item icon canvas. |
 | Mystery Cake | Pixel Platformer Food Expansion, `Tiles/tile_0014.png` | Kenney | CC0 1.0 | https://kenney.nl/assets/pixel-platformer-food-expansion | Fit to WULAND 48x48 item icon canvas. |
 
+## UI Icons
+
+| In-game use | Asset/source | Author | License | URL | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Attack touch button | Crossed Swords | Lorc | CC BY 3.0 | https://game-icons.net/1x1/lorc/crossed-swords.html | Foreground silhouette only, recolored through CSS. |
+| Act touch button | Choice | Delapouite | CC BY 3.0 | https://game-icons.net/1x1/delapouite/choice.html | Foreground silhouette only, recolored through CSS. |
+| Settings touch button | Cog | Lorc | CC BY 3.0 | https://game-icons.net/1x1/lorc/cog.html | Foreground silhouette only, recolored through CSS. |
+
 ## Generated Visuals
 
-Player sprites, NPC sprites, buildings, map interiors, enemies, arrows, speech bubbles, and UI shapes are generated locally with Phaser canvas drawing and CSS.
+Player sprites, NPC sprites, pet sprites, buildings, map interiors, enemies, arrows, speech bubbles, and UI shapes are generated locally with Phaser canvas drawing and CSS.

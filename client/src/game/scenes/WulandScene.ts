@@ -247,6 +247,7 @@ export class WulandScene extends Phaser.Scene {
   private selectedNpcId = "";
   private selectedPlayerId = "";
   private virtualInput: MovementInput = { ...ZERO_INPUT };
+  private joystickPointerId: number | null = null;
   private clickTarget?: Phaser.Math.Vector2;
   private destinationMarker?: Phaser.GameObjects.Arc;
   private merchantSpeechTimer?: Phaser.Time.TimerEvent;
@@ -262,7 +263,7 @@ export class WulandScene extends Phaser.Scene {
   private sceneActive = false;
   private readonly handleWindowBlur = (): void => {
     this.lastInput = { ...ZERO_INPUT };
-    this.virtualInput = { ...ZERO_INPUT };
+    this.resetMobileJoystick();
     this.sendMovementInput(ZERO_INPUT, true);
   };
   private readonly handleViewportControlsChange = (): void => {
@@ -941,11 +942,9 @@ export class WulandScene extends Phaser.Scene {
       <div class="mobile-menu-stack" aria-label="Menu controls">
         <button type="button" data-mobile-action="menu" aria-label="Open menu">☰<span>Menu</span></button>
       </div>
-      <div class="mobile-dpad" aria-label="Movement controls">
-        <button type="button" data-mobile-dir="up" aria-label="Move up">↑</button>
-        <button type="button" data-mobile-dir="left" aria-label="Move left">←</button>
-        <button type="button" data-mobile-dir="down" aria-label="Move down">↓</button>
-        <button type="button" data-mobile-dir="right" aria-label="Move right">→</button>
+      <div class="mobile-joystick" data-mobile-joystick aria-label="Movement joystick">
+        <span class="mobile-joystick-ring"></span>
+        <span class="mobile-joystick-knob" data-mobile-joystick-knob></span>
       </div>
       <div class="mobile-action-zone" aria-label="Action controls">
         <div class="mobile-radial-menu" data-mobile-radial-menu aria-label="More actions">
@@ -963,29 +962,39 @@ export class WulandScene extends Phaser.Scene {
     uiRoot.appendChild(root);
     this.mobileRoot = root;
 
-    root.querySelectorAll<HTMLButtonElement>("[data-mobile-dir]").forEach((button) => {
-      const direction = button.dataset.mobileDir as keyof MovementInput;
-      const activate = (event: PointerEvent): void => {
-        event.preventDefault();
-        button.setPointerCapture?.(event.pointerId);
-        button.classList.add("active");
-        this.virtualInput = { ...ZERO_INPUT, [direction]: true };
-        this.clearClickTarget(true);
-      };
-      const deactivate = (event: PointerEvent): void => {
-        event.preventDefault();
-        button.classList.remove("active");
-        this.virtualInput = { ...ZERO_INPUT };
-      };
+    const joystick = root.querySelector<HTMLElement>("[data-mobile-joystick]");
+    const joystickKnob = root.querySelector<HTMLElement>("[data-mobile-joystick-knob]");
 
-      button.addEventListener("pointerdown", activate);
-      button.addEventListener("pointerup", deactivate);
-      button.addEventListener("pointercancel", deactivate);
-      button.addEventListener("lostpointercapture", () => {
-        button.classList.remove("active");
-        this.virtualInput = { ...ZERO_INPUT };
+    if (joystick && joystickKnob) {
+      joystick.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        this.joystickPointerId = event.pointerId;
+        joystick.setPointerCapture?.(event.pointerId);
+        joystick.classList.add("active");
+        this.updateMobileJoystick(event, joystick, joystickKnob);
       });
-    });
+      joystick.addEventListener("pointermove", (event) => {
+        if (this.joystickPointerId !== event.pointerId) {
+          return;
+        }
+
+        event.preventDefault();
+        this.updateMobileJoystick(event, joystick, joystickKnob);
+      });
+      const releaseJoystick = (event: PointerEvent): void => {
+        if (this.joystickPointerId !== event.pointerId) {
+          return;
+        }
+
+        event.preventDefault();
+        this.resetMobileJoystick(joystick, joystickKnob);
+      };
+      joystick.addEventListener("pointerup", releaseJoystick);
+      joystick.addEventListener("pointercancel", releaseJoystick);
+      joystick.addEventListener("lostpointercapture", () => {
+        this.resetMobileJoystick(joystick, joystickKnob);
+      });
+    }
 
     root.querySelector('[data-mobile-action="primary"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -1035,6 +1044,50 @@ export class WulandScene extends Phaser.Scene {
       this.selectCombatTarget();
       this.clearClickTarget(true);
     });
+  }
+
+  private updateMobileJoystick(
+    event: PointerEvent,
+    joystick: HTMLElement,
+    knob: HTMLElement
+  ): void {
+    const rect = joystick.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const rawX = event.clientX - centerX;
+    const rawY = event.clientY - centerY;
+    const maxDistance = Math.max(34, Math.min(rect.width, rect.height) * 0.34);
+    const distance = Math.hypot(rawX, rawY);
+    const scale = distance > maxDistance ? maxDistance / distance : 1;
+    const x = rawX * scale;
+    const y = rawY * scale;
+    const normalizedX = x / maxDistance;
+    const normalizedY = y / maxDistance;
+    const threshold = 0.2;
+
+    knob.style.transform = `translate(calc(-50% + ${Math.round(x)}px), calc(-50% + ${Math.round(y)}px))`;
+    this.virtualInput = {
+      left: normalizedX < -threshold,
+      right: normalizedX > threshold,
+      up: normalizedY < -threshold,
+      down: normalizedY > threshold
+    };
+
+    if (hasMovementInput(this.virtualInput)) {
+      this.clearClickTarget(true);
+    }
+  }
+
+  private resetMobileJoystick(
+    joystick = this.mobileRoot?.querySelector<HTMLElement>("[data-mobile-joystick]") ?? undefined,
+    knob = this.mobileRoot?.querySelector<HTMLElement>("[data-mobile-joystick-knob]") ?? undefined
+  ): void {
+    this.joystickPointerId = null;
+    this.virtualInput = { ...ZERO_INPUT };
+    joystick?.classList.remove("active");
+    if (knob) {
+      knob.style.transform = "";
+    }
   }
 
   private updateMobileControlHints(player: PlayerNetworkState): void {

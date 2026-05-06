@@ -82,7 +82,7 @@ export class UIScene extends Phaser.Scene {
     this.profile = data.profile;
     this.progress = data.progress;
     this.connection = data.connection ?? this.connection;
-    this.chatCollapsed = prefersTouchLayout();
+    this.chatCollapsed = prefersTouchLayout() && !prefersPortraitTouchLayout();
     this.mount();
     this.render();
 
@@ -760,6 +760,10 @@ const formatMoney = (value: number): string =>
 const prefersTouchLayout = (): boolean =>
   window.matchMedia("(pointer: coarse)").matches ||
   window.innerWidth <= 860;
+
+const prefersPortraitTouchLayout = (): boolean =>
+  prefersTouchLayout() &&
+  window.matchMedia("(orientation: portrait)").matches;
 
 const touchPortalPrompt = (prompt: string): string =>
   prompt.replace(/^Press F to /, "Interact: ");

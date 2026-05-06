@@ -65,8 +65,9 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
 
 - Phone-first controls:
   - Tap the map to move toward a location.
-  - Use the on-screen D-pad for precise movement around doors, buildings, and combat.
+  - Use the on-screen joystick for precise movement around doors, buildings, and combat.
   - Tap a hotbar slot to select a weapon or cake.
+  - In portrait, chat sits at the top, the 9-slot hotbar becomes a vertical right-side rail, movement stays bottom-left, and actions stay bottom-right.
   - In landscape, the hotbar sits at the top center, the player HP chip stays top-left, and the menu button stays top-right.
   - Tap an enemy, NPC, or player to select a target, then press the large primary button.
   - The large primary button changes context: Attack, Shop, Door, Pick, Eat, or Use.
@@ -74,13 +75,13 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
   - Chat starts minimized on touch layouts to protect the playfield.
 - `WASD` or arrow keys: move.
 - Mouse click or touchscreen tap: move toward a target.
-- Mobile joystick or D-pad: direct movement.
+- Mobile joystick: direct movement.
 - Walk into a marked doorway or press `F` near it to enter a building.
 - Press `F` near an interior exit door to return to WULAND.
 
 Keyboard or joystick movement interrupts click/tap movement. The server remains authoritative for movement, map transitions, collision, and final position.
 
-The HUD is now phone-centric: critical status stays in a compact player chip, landscape play follows a 2D RPG layout with top hotbar plus bottom-corner movement/action zones, and long panels such as chat, help, and the merchant shop open as mobile-friendly overlays instead of permanently covering the world.
+The HUD is now phone-centric: portrait play follows the attached sketch with a top chat panel, vertical right hotbar, bottom-left joystick, and bottom-right action cluster. Landscape play follows a 2D RPG layout with top hotbar plus bottom-corner movement/action zones.
 
 ## Multi-Map WULAND
 
@@ -296,4 +297,4 @@ Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-i
 
 The current gameplay patch lets NPCs explore all maps, allows attacks against NPCs and other players including sleeping players, respawns defeated NPCs/players at random walkable map locations, and drops only one item from stacked inventory slots.
 
-The current mobile polish patch makes WULAND phone-first by collapsing chat by default on touch layouts, using a reference-style landscape layout with top hotbar, compact player chip, menu button, circular D-pad, contextual primary button, and ACT radial menu, and reshaping the HUD/shop/help overlays around thumb play.
+The current mobile polish patch makes WULAND phone-first by using a gacha-style draggable joystick, portrait chat-at-top/right-hotbar layout, contextual circular action buttons, a reference-style landscape layout, and ACT radial menu.

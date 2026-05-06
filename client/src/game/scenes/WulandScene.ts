@@ -956,7 +956,7 @@ export class WulandScene extends Phaser.Scene {
         </div>
         <button type="button" class="mobile-primary-action" data-mobile-action="primary">Attack</button>
         <button type="button" class="mobile-act-toggle" data-mobile-action="act-toggle">Act</button>
-        <button type="button" class="mobile-cancel-action" data-mobile-action="cancel" aria-label="Cancel action">↩</button>
+        <button type="button" class="mobile-settings-action" data-mobile-action="settings" aria-label="Open settings">⚙</button>
       </div>
     `;
     uiRoot.appendChild(root);
@@ -1034,15 +1034,10 @@ export class WulandScene extends Phaser.Scene {
       event.preventDefault();
       this.toggleMobileActionMenu();
     });
-    root.querySelector('[data-mobile-action="cancel"]')?.addEventListener("pointerdown", (event) => {
+    root.querySelector('[data-mobile-action="settings"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
-      if (this.mobileRoot?.classList.contains("actions-open")) {
-        this.closeMobileActionMenu();
-        return;
-      }
-
-      this.selectCombatTarget();
-      this.clearClickTarget(true);
+      this.closeMobileActionMenu();
+      this.game.events.emit("wuland:toggleHelp", true);
     });
   }
 

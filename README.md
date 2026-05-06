@@ -72,7 +72,7 @@ VITE_SERVER_URL=wss://wuland-server.kbekulov.live
   - Tap an enemy, NPC, or player to select a target, then press the large primary button.
   - The large primary button changes context: Attack, Shop, Door, Pick, Eat, or Use.
   - `Act` opens the secondary action wheel for Use, Open, Gift, Chat, and Help.
-  - Chat starts minimized on touch layouts to protect the playfield.
+  - The settings button opens the full status/help screen; the compact status card is hidden during portrait play.
 - `WASD` or arrow keys: move.
 - Mouse click or touchscreen tap: move toward a target.
 - Mobile joystick: direct movement.
@@ -103,7 +103,7 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
   - Tap a target, then tap the large primary button.
   - The primary button performs the most relevant action: Attack, Door, Shop, Pick, Eat, or Use.
   - Tap `Act` for the radial secondary menu, then choose Use, Open, Gift, Chat, or Help.
-  - Tap the back arrow button to close the action wheel or clear the current target/path.
+  - Tap the settings button for full status, connection information, and controls help.
 - `1` through `9`: select a hotbar slot.
 - `Space`: attack with the selected weapon.
 - `E`: use the selected consumable.
@@ -297,4 +297,4 @@ Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-i
 
 The current gameplay patch lets NPCs explore all maps, allows attacks against NPCs and other players including sleeping players, respawns defeated NPCs/players at random walkable map locations, and drops only one item from stacked inventory slots.
 
-The current mobile polish patch makes WULAND phone-first by using a gacha-style draggable joystick, portrait chat-at-top/right-hotbar layout, contextual circular action buttons, a reference-style landscape layout, and ACT radial menu.
+The current mobile polish patch makes WULAND phone-first by using a gacha-style draggable joystick, portrait chat-at-top/right-hotbar layout, compact circular action buttons, a settings/status screen, cached hotbar icons to prevent mobile flicker, a reference-style landscape layout, and ACT radial menu.

@@ -1067,6 +1067,56 @@ label span,
   font-size: 24px;
 }
 
+.settings-status {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 10px;
+}
+
+.settings-status > strong {
+  color: #fff8e7;
+  font-size: 20px;
+}
+
+.settings-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.settings-status-grid span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  color: #abd8d0;
+  padding: 7px;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.settings-status-grid b {
+  color: #fff8e7;
+  font-size: 13px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  text-transform: none;
+}
+
+.settings-status p {
+  margin: 0;
+  color: #dff7f1;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
 .merchant-shop h2 {
   margin: 4px 0 0;
   font-size: 24px;
@@ -1190,7 +1240,7 @@ body[data-touch-controls] .mobile-controls {
 .mobile-menu-stack button {
   min-height: 50px;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
+  border-radius: 999px;
   background: rgba(14, 29, 30, 0.82);
   color: #fff8e7;
   font-size: 13px;
@@ -1268,39 +1318,42 @@ body[data-touch-controls] .mobile-controls {
   height: 176px;
 }
 
-.mobile-primary-action {
+.mobile-action-zone .mobile-primary-action {
   position: absolute;
   right: 0;
   bottom: 68px;
   width: 96px;
   height: 96px;
-  border-radius: 50%;
+  min-height: 96px;
+  border-radius: 999px;
   background: rgba(86, 196, 168, 0.9);
   color: #08211e;
   font-size: 16px;
   text-transform: uppercase;
 }
 
-.mobile-act-toggle {
+.mobile-action-zone .mobile-act-toggle {
   position: absolute;
   right: 86px;
   bottom: 42px;
   width: 64px;
   height: 64px;
-  border-radius: 50%;
+  min-height: 64px;
+  border-radius: 999px;
   background: rgba(116, 192, 252, 0.9);
   color: #071b2c;
 }
 
-.mobile-cancel-action {
+.mobile-action-zone .mobile-settings-action {
   position: absolute;
   right: 8px;
   bottom: 0;
   width: 52px;
   height: 52px;
-  border-radius: 50%;
+  min-height: 52px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.14);
-  font-size: 23px;
+  font-size: 20px;
 }
 
 .mobile-radial-menu {
@@ -1331,9 +1384,10 @@ body[data-touch-controls] .mobile-controls {
   position: absolute;
   display: grid;
   place-items: center;
-  width: 56px;
-  min-height: 48px;
-  border-radius: 12px;
+  width: 54px;
+  height: 54px;
+  min-height: 54px;
+  border-radius: 999px;
   background: rgba(14, 29, 30, 0.88);
   color: #fff8e7;
   padding: 0 4px;
@@ -1672,14 +1726,14 @@ body[data-touch-controls] .mobile-controls {
     height: 166px;
   }
 
-  .mobile-primary-action {
+  .mobile-action-zone .mobile-primary-action {
     width: 92px;
     height: 92px;
     min-height: 92px;
     bottom: 60px;
   }
 
-  .mobile-act-toggle {
+  .mobile-action-zone .mobile-act-toggle {
     right: 82px;
     bottom: 36px;
     width: 62px;
@@ -1687,7 +1741,7 @@ body[data-touch-controls] .mobile-controls {
     min-height: 62px;
   }
 
-  .mobile-cancel-action {
+  .mobile-action-zone .mobile-settings-action {
     width: 50px;
     height: 50px;
     min-height: 50px;
@@ -1738,12 +1792,6 @@ body[data-touch-controls] .mobile-controls {
     display: none;
   }
 
-  .wuland-hud[data-connection-status="error"] .hud-card,
-  .wuland-hud[data-connection-status="disconnected"] .hud-card {
-    display: grid;
-    width: calc(100vw - 112px);
-  }
-
   .mobile-controls {
     align-items: end;
     gap: 8px;
@@ -1760,36 +1808,37 @@ body[data-touch-controls] .mobile-controls {
   }
 
   .mobile-action-zone {
-    width: 190px;
-    height: 190px;
+    width: 160px;
+    height: 164px;
   }
 
-  .mobile-primary-action {
+  .mobile-action-zone .mobile-primary-action {
     left: 0;
     right: auto;
     bottom: 0;
-    width: 96px;
-    height: 96px;
-    min-height: 96px;
+    width: 84px;
+    height: 84px;
+    min-height: 84px;
+    font-size: 13px;
   }
 
-  .mobile-act-toggle {
-    left: 92px;
+  .mobile-action-zone .mobile-act-toggle {
+    left: 86px;
     right: auto;
-    top: 2px;
+    top: 8px;
     bottom: auto;
-    width: 76px;
-    height: 76px;
-    min-height: 76px;
+    width: 62px;
+    height: 62px;
+    min-height: 62px;
   }
 
-  .mobile-cancel-action {
-    right: 0;
-    top: 92px;
+  .mobile-action-zone .mobile-settings-action {
+    right: 4px;
+    top: 82px;
     bottom: auto;
-    width: 58px;
-    height: 58px;
-    min-height: 58px;
+    width: 52px;
+    height: 52px;
+    min-height: 52px;
   }
 
   .mobile-radial-menu {

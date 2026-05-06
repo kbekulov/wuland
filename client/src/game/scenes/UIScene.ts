@@ -73,6 +73,7 @@ export class UIScene extends Phaser.Scene {
   private godModeCode = "";
   private shopFeedback = "";
   private lastBuyIntent: { itemDefinitionId: ItemDefinitionId; sentAt: number } | null = null;
+  private hotbarRenderKey = "";
 
   constructor() {
     super("UIScene");
@@ -107,6 +108,7 @@ export class UIScene extends Phaser.Scene {
 
     this.root = document.createElement("div");
     this.root.className = "wuland-hud";
+    this.hotbarRenderKey = "";
     this.root.innerHTML = `
       <section class="hud-card">
         <div class="hud-header">
@@ -132,7 +134,7 @@ export class UIScene extends Phaser.Scene {
             <span class="meter-track"><span data-hud-hp-fill></span></span>
           </div>
         </div>
-        <div class="hud-hint">Tap the map to move | Tap a target then Attack | Use the D-pad for tight spaces</div>
+        <div class="hud-hint">Tap the map to move | Tap a target then Attack | Use the joystick for tight spaces</div>
         <div class="hud-active-item">
           <span class="eyebrow">Selected</span>
           <strong data-hud-active-item>No item</strong>
@@ -182,8 +184,20 @@ export class UIScene extends Phaser.Scene {
       <section class="help-overlay" data-help-overlay>
         <div>
           <button type="button" class="secondary small" data-action="close-help">Close</button>
+          <section class="settings-status">
+            <span class="eyebrow">Status</span>
+            <strong data-settings-name></strong>
+            <div class="settings-status-grid">
+              <span><b data-settings-hp></b>HP</span>
+              <span><b data-settings-location></b>Location</span>
+              <span><b data-settings-money></b>Coins</span>
+              <span><b data-settings-item></b>Selected</span>
+            </div>
+            <p data-settings-connection></p>
+            <p data-settings-counts></p>
+          </section>
           <h2>Controls</h2>
-          <p>Phone first: tap the map to travel, use the D-pad for tight spaces, tap a target, then press Attack.</p>
+          <p>Phone first: tap the map to travel, use the joystick for tight spaces, tap a target, then press Attack.</p>
           <p>Tap a hotbar slot to select it. Attack uses the selected weapon. Use eats selected cakes. Interact uses doors, picks up nearby drops, or opens the merchant shop. Gift sends selected cake to a nearby player.</p>
           <p>Desktop still works: WASD / arrows move, Space attacks, E uses, F interacts, G gifts, and 1-9 select hotbar slots.</p>
           <p>Enter focuses chat. Enter again sends. Escape leaves chat input.</p>
@@ -258,11 +272,13 @@ export class UIScene extends Phaser.Scene {
     const buildingList = this.root.querySelector("[data-hud-buildings]");
 
     this.setText("[data-hud-name]", this.profile.name);
+    this.setText("[data-settings-name]", this.profile.name);
     this.setText(
       "[data-hud-class]",
       `${classMeta.iconText} ${classMeta.displayName} | ${classMeta.futureRole}`
     );
     this.setText("[data-hud-location]", this.connection.currentMapName);
+    this.setText("[data-settings-location]", this.connection.currentMapName);
     this.setText(
       "[data-hud-position]",
       `x:${Math.round(this.progress.lastPosition.x)} y:${Math.round(this.progress.lastPosition.y)}`
@@ -276,8 +292,19 @@ export class UIScene extends Phaser.Scene {
       "[data-hud-hp]",
       `${this.connection.localHp}/${this.connection.localMaxHp}${this.connection.defeated ? " respawning" : ""}`
     );
+    this.setText(
+      "[data-settings-hp]",
+      `${this.connection.localHp}/${this.connection.localMaxHp}${this.connection.defeated ? " respawning" : ""}`
+    );
     this.setText("[data-hud-active-item]", this.connection.activeItemName);
+    this.setText("[data-settings-item]", this.connection.activeItemName);
     this.setText("[data-hud-money]", `${formatMoney(this.connection.money)} coins`);
+    this.setText("[data-settings-money]", formatMoney(this.connection.money));
+    this.setText("[data-settings-connection]", this.connection.message);
+    this.setText(
+      "[data-settings-counts]",
+      `${this.connection.onlinePlayers} online | ${this.connection.sleepingPlayers} sleeping | ${this.connection.aliveEnemies}/${this.connection.totalEnemies} enemies active`
+    );
     this.setText("[data-shop-money]", `${formatMoney(this.connection.money)} WULAND coins`);
     this.setText("[data-shop-feedback]", this.shopFeedback);
     this.setText("[data-hud-pickup-hint]", this.interactionHint());
@@ -521,6 +548,16 @@ export class UIScene extends Phaser.Scene {
     if (!slots) {
       return;
     }
+
+    const renderKey = this.connection.inventory.map((slot) =>
+      `${slot.slotIndex}:${slot.itemDefinitionId}:${slot.itemInstanceId}:${slot.quantity}`
+    ).join("|") + `|selected:${this.connection.selectedHotbarSlot}`;
+
+    if (renderKey === this.hotbarRenderKey) {
+      return;
+    }
+
+    this.hotbarRenderKey = renderKey;
 
     slots.innerHTML = this.connection.inventory.map((slot) => {
       const definition = slot.itemDefinitionId ? ITEM_DEFINITIONS[slot.itemDefinitionId] : null;

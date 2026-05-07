@@ -24,7 +24,7 @@
 
 | In-game use | Asset/source | Author | License | URL | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Cats | Tiny Creatures, `Tiles/tile_0095.png` | Clint Bellanger, made with Kenney's permission | CC0 1.0 | https://opengameart.org/content/tiny-creatures | Used as the WULAND cat sprite. |
+| Cats | Tiny Creatures, `Tiles/tile_0158.png` | Clint Bellanger, made with Kenney's permission | CC0 1.0 | https://opengameart.org/content/tiny-creatures | Used as the WULAND cat sprite with light outline cleanup. |
 | Dogs | Tiny Creatures, `Tiles/tile_0170.png` | Clint Bellanger, made with Kenney's permission | CC0 1.0 | https://opengameart.org/content/tiny-creatures | Used as the WULAND dog sprite. |
 
 ## Generated Visuals

@@ -55,8 +55,8 @@ export class BootScene extends Phaser.Scene {
 
   private loadPetSprites(): void {
     [
-      { key: petSpriteTextureKey("cat"), path: "/assets/pets/cat.png" },
-      { key: petSpriteTextureKey("dog"), path: "/assets/pets/dog.png" }
+      { key: petSpriteTextureKey("cat"), path: `/assets/pets/cat.png?v=${PET_SPRITE_ASSET_VERSION}` },
+      { key: petSpriteTextureKey("dog"), path: `/assets/pets/dog.png?v=${PET_SPRITE_ASSET_VERSION}` }
     ].forEach((asset) => {
       if (this.textures.exists(asset.key)) {
         return;
@@ -70,3 +70,5 @@ export class BootScene extends Phaser.Scene {
 const itemIconTextureKey = (itemDefinitionId: string): string => `item-icon-${itemDefinitionId}`;
 
 const petSpriteTextureKey = (type: "cat" | "dog"): string => `pet-sprite-${type}`;
+
+const PET_SPRITE_ASSET_VERSION = "2";

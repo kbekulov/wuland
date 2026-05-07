@@ -18,9 +18,7 @@
 
 | In-game use | Asset/source | Author | License | URL | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Attack touch button | Crossed Swords | Lorc | CC BY 3.0 | https://game-icons.net/1x1/lorc/crossed-swords.html | Foreground silhouette only, recolored through CSS. |
-| Act touch button | Choice | Delapouite | CC BY 3.0 | https://game-icons.net/1x1/delapouite/choice.html | Foreground silhouette only, recolored through CSS. |
-| Settings touch button | Cog | Lorc | CC BY 3.0 | https://game-icons.net/1x1/lorc/cog.html | Foreground silhouette only, recolored through CSS. |
+| Mobile action controls | Lucide static icons: Sword, Sparkles, X, Settings, Hand, Cake Slice, Door Open, Package Open, Shopping Bag, Gift, Paw Print, Message Circle, Circle Help | Lucide Contributors | ISC | https://lucide.dev/ | Stroke width adjusted for WULAND touch readability and recolored through CSS masks. |
 
 ## Generated Visuals
 

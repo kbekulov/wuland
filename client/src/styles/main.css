@@ -1343,8 +1343,12 @@ body[data-touch-controls] .mobile-controls {
 }
 
 .mobile-action-zone .mobile-primary-action[data-primary-action="interact"],
+.mobile-radial-menu [data-mobile-action="pickup"] {
+  --mobile-icon: url("/assets/ui/interact.svg");
+}
+
 .mobile-action-zone .mobile-primary-action[data-primary-action="use"] {
-  --mobile-icon: url("/assets/ui/act.svg");
+  --mobile-icon: url("/assets/ui/use.svg");
 }
 
 .mobile-action-zone .mobile-act-toggle {
@@ -1360,6 +1364,10 @@ body[data-touch-controls] .mobile-controls {
     radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.14), transparent 34%),
     rgba(14, 29, 30, 0.82);
   color: #fff8e7;
+}
+
+.mobile-controls.actions-open .mobile-act-toggle {
+  --mobile-icon: url("/assets/ui/close.svg");
 }
 
 .mobile-action-zone .mobile-settings-action {
@@ -1449,6 +1457,7 @@ body[data-touch-controls] .mobile-controls {
 }
 
 .mobile-radial-menu [data-mobile-action="use"] {
+  --mobile-icon: url("/assets/ui/use.svg");
   left: 58px;
   top: 8px;
 }
@@ -1458,24 +1467,58 @@ body[data-touch-controls] .mobile-controls {
   top: 56px;
 }
 
+.mobile-radial-menu [data-mobile-action="pickup"][data-interact-kind="door"] {
+  --mobile-icon: url("/assets/ui/open.svg");
+}
+
+.mobile-radial-menu [data-mobile-action="pickup"][data-interact-kind="pick"] {
+  --mobile-icon: url("/assets/ui/pickup.svg");
+}
+
+.mobile-radial-menu [data-mobile-action="pickup"][data-interact-kind="shop"] {
+  --mobile-icon: url("/assets/ui/shop.svg");
+}
+
 .mobile-radial-menu [data-mobile-action="gift"] {
+  --mobile-icon: url("/assets/ui/gift.svg");
   right: 12px;
   top: 56px;
 }
 
 .mobile-radial-menu [data-mobile-action="pet"] {
+  --mobile-icon: url("/assets/ui/pet.svg");
   left: 58px;
   top: 52px;
 }
 
 .mobile-radial-menu [data-mobile-action="chat"] {
+  --mobile-icon: url("/assets/ui/chat.svg");
   left: 42px;
   bottom: 10px;
 }
 
 .mobile-radial-menu [data-mobile-action="help"] {
+  --mobile-icon: url("/assets/ui/help.svg");
   right: 34px;
   bottom: 10px;
+}
+
+.mobile-radial-menu .mobile-control-icon {
+  display: block;
+  width: 30px;
+  height: 30px;
+  background: currentColor;
+  mask: var(--mobile-icon) center / contain no-repeat;
+  -webkit-mask: var(--mobile-icon) center / contain no-repeat;
+}
+
+.mobile-radial-menu .mobile-control-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 @media (max-width: 760px) {

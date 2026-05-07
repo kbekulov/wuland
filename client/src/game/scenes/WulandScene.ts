@@ -955,12 +955,30 @@ export class WulandScene extends Phaser.Scene {
       </div>
       <div class="mobile-action-zone" aria-label="Action controls">
         <div class="mobile-radial-menu" data-mobile-radial-menu aria-label="More actions">
-          <button type="button" data-mobile-action="use">Use</button>
-          <button type="button" data-mobile-action="pickup">Open</button>
-          <button type="button" data-mobile-action="gift">Gift</button>
-          <button type="button" data-mobile-action="pet">Pet</button>
-          <button type="button" data-mobile-action="chat">Chat</button>
-          <button type="button" data-mobile-action="help">Help</button>
+          <button type="button" data-mobile-action="use" aria-label="Use">
+            <span class="mobile-control-icon" aria-hidden="true"></span>
+            <span class="mobile-control-label">Use</span>
+          </button>
+          <button type="button" data-mobile-action="pickup" aria-label="Open">
+            <span class="mobile-control-icon" aria-hidden="true"></span>
+            <span class="mobile-control-label">Open</span>
+          </button>
+          <button type="button" data-mobile-action="gift" aria-label="Gift">
+            <span class="mobile-control-icon" aria-hidden="true"></span>
+            <span class="mobile-control-label">Gift</span>
+          </button>
+          <button type="button" data-mobile-action="pet" aria-label="Pet">
+            <span class="mobile-control-icon" aria-hidden="true"></span>
+            <span class="mobile-control-label">Pet</span>
+          </button>
+          <button type="button" data-mobile-action="chat" aria-label="Chat">
+            <span class="mobile-control-icon" aria-hidden="true"></span>
+            <span class="mobile-control-label">Chat</span>
+          </button>
+          <button type="button" data-mobile-action="help" aria-label="Help">
+            <span class="mobile-control-icon" aria-hidden="true"></span>
+            <span class="mobile-control-label">Help</span>
+          </button>
         </div>
         <button type="button" class="mobile-primary-action" data-mobile-action="primary" aria-label="Attack">
           <span class="mobile-control-icon" aria-hidden="true"></span>
@@ -1137,9 +1155,12 @@ export class WulandScene extends Phaser.Scene {
     if (useButton) {
       const canUse = selectedDefinition?.itemType === "consumable";
       useButton.disabled = !canUse;
-      useButton.textContent = selectedDefinition && isCakeItemDefinitionId(selectedDefinition.itemDefinitionId)
-        ? "Eat"
-        : "Use";
+      setMobileButtonLabel(
+        useButton,
+        selectedDefinition && isCakeItemDefinitionId(selectedDefinition.itemDefinitionId)
+          ? "Eat"
+          : "Use"
+      );
       useButton.title = canUse && selectedDefinition
         ? `Use ${selectedDefinition.displayName}`
         : "Select a cake or consumable first";
@@ -1152,13 +1173,20 @@ export class WulandScene extends Phaser.Scene {
         Boolean(this.connectionState.nearbyPickupName);
 
       interactButton.disabled = !hasInteraction;
-      interactButton.textContent = this.connectionState.nearMerchant
+      interactButton.dataset.interactKind = this.connectionState.nearMerchant
+        ? "shop"
+        : this.connectionState.nearbyPortalId
+          ? "door"
+          : this.connectionState.nearbyPickupName
+            ? "pick"
+            : "interact";
+      setMobileButtonLabel(interactButton, this.connectionState.nearMerchant
         ? "Shop"
         : this.connectionState.nearbyPortalId
           ? "Door"
           : this.connectionState.nearbyPickupName
             ? "Pick"
-            : "Act";
+            : "Act");
       interactButton.title = hasInteraction
         ? this.connectionState.portalPrompt || this.connectionState.nearbyPickupName || "Interact"
         : "Stand near a door, item, or merchant";

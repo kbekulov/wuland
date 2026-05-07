@@ -102,7 +102,8 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
 - Phone/touch:
   - Tap a target, then tap the large primary button.
   - The primary button performs the most relevant action: Attack, Door, Shop, Pick, Eat, or Use.
-  - The primary Attack, Act, and Settings controls use white Game-icons.net silhouettes instead of text labels.
+  - The primary Attack, Act, and Settings controls use soft white Lucide icons instead of text labels.
+  - Interact uses a hand-style icon, while Act uses a sparkles menu icon.
   - Tap `Act` for the radial secondary menu, then choose Use, Open, Gift, Pet, Chat, or Help.
   - Tap the settings icon for full status, connection information, and controls help.
 - `1` through `9`: select a hotbar slot.
@@ -135,7 +136,7 @@ Weapons:
 - Magic Wand: longer-range magic projectile with medium damage.
 - Rock: thrown blunt projectile with lower damage.
 
-Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current item icons use CC0 assets from Kenney and OpenGameArt. Touch control icons use Game-icons.net silhouettes. Credits live in `CREDITS.md` and `client/public/assets/CREDITS.md`.
+Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current item icons use CC0 assets from Kenney and OpenGameArt. Touch control icons use soft Lucide line icons. Credits live in `CREDITS.md` and `client/public/assets/CREDITS.md`.
 
 ## Merchant and Cakes
 

@@ -88,7 +88,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 13;
+export const WULAND_PROTOCOL_VERSION = 14;
 export const PLAYER_STARTING_MONEY = 999_999;
 
 export const GENDERS = ["male", "female"] as const;
@@ -1217,13 +1217,26 @@ export const WULAND_AMBIENT_NPCS: AmbientNpcDefinition[] = [
     type: "cat",
     displayName: "Miso",
     mapId: "overworld",
-    x: 355,
-    y: 740,
-    wanderRadius: 180,
+    x: 720,
+    y: 850,
+    wanderRadius: 130,
     speed: 56,
     color: 0x5a3a2e,
     accentColor: 0xfff3bf,
     speechLines: ["Meow.", "Purr.", "Zzz", "Mrrrp?"]
+  },
+  {
+    npcId: "cat-noodle-overworld",
+    type: "cat",
+    displayName: "Noodle",
+    mapId: "overworld",
+    x: 860,
+    y: 785,
+    wanderRadius: 120,
+    speed: 54,
+    color: 0xf1c27d,
+    accentColor: 0x343a40,
+    speechLines: ["Meow.", "Purr.", "Zzz", "Judges the hotbar."]
   },
   {
     npcId: "cat-cache-rpa",
@@ -1256,13 +1269,26 @@ export const WULAND_AMBIENT_NPCS: AmbientNpcDefinition[] = [
     type: "dog",
     displayName: "Ticket",
     mapId: "overworld",
-    x: 965,
-    y: 620,
-    wanderRadius: 210,
+    x: 905,
+    y: 870,
+    wanderRadius: 155,
     speed: 68,
     color: 0x8b5e34,
     accentColor: 0xf8f0dc,
     speechLines: ["Woof!", "Bark!", "Zzz", "Tail status: active."]
+  },
+  {
+    npcId: "dog-patch-overworld",
+    type: "dog",
+    displayName: "Patch",
+    mapId: "overworld",
+    x: 780,
+    y: 930,
+    wanderRadius: 135,
+    speed: 62,
+    color: 0xf1f3f5,
+    accentColor: 0x5c3d2e,
+    speechLines: ["Woof!", "Bark!", "Zzz", "Sniffs a suspicious rock."]
   },
   {
     npcId: "dog-sprint-busybeet",

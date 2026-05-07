@@ -2585,20 +2585,159 @@ export class WulandScene extends Phaser.Scene {
 
   private showAttackEffect(event: CombatEvent): void {
     const source = this.avatars.get(event.sourceId);
-    const start = source
-      ? { x: source.sprite.x, y: source.sprite.y - 10 }
+    const itemDefinitionId = event.itemDefinitionId ?? "rock";
+    const itemDefinition = ITEM_DEFINITIONS[itemDefinitionId];
+
+    if (source) {
+      this.showHeldWeaponSwing(source, itemDefinitionId, event);
+    }
+
+    if (itemDefinition?.attackShape === "arc") {
+      this.showSwordSlash(source, event);
+      return;
+    }
+
+    this.showWeaponProjectile(source, itemDefinitionId, event);
+  }
+
+  private showHeldWeaponSwing(
+    source: PlayerAvatar,
+    itemDefinitionId: ItemDefinitionId,
+    event: CombatEvent
+  ): void {
+    const iconKey = itemIconTextureKey(itemDefinitionId);
+
+    if (!this.textures.exists(iconKey)) {
+      return;
+    }
+
+    const direction = source.lastState.direction;
+    const heldOffset = heldItemOffset(direction);
+    const directionVector = vectorForDirection(direction);
+    const swingDirection = direction === "left" || direction === "up" ? -1 : 1;
+    const startX = source.sprite.x + heldOffset.x;
+    const startY = source.sprite.y + heldOffset.y;
+    const scale = itemDefinitionId === "sword" ? 0.72 : 0.62;
+    const swing = this.add
+      .image(startX, startY, iconKey)
+      .setDepth(direction === "up" ? 55 : 112)
+      .setScale(scale)
+      .setAngle(heldOffset.angle - 42 * swingDirection)
+      .setFlipX(direction === "left")
+      .setAlpha(0.96);
+
+    this.tweens.add({
+      targets: swing,
+      x: startX + directionVector.x * (itemDefinitionId === "sword" ? 30 : 18),
+      y: startY + directionVector.y * (itemDefinitionId === "sword" ? 30 : 18) - 4,
+      angle: heldOffset.angle + 104 * swingDirection,
+      scale: scale * 1.08,
+      alpha: 0.12,
+      duration: itemDefinitionId === "sword" ? 155 : 130,
+      ease: "Sine.easeOut",
+      onComplete: () => swing.destroy()
+    });
+
+    if (itemDefinitionId === "magic-wand") {
+      const spark = this.add
+        .circle(startX + directionVector.x * 18, startY + directionVector.y * 18, 9, parseCssColor(event.color), 0.34)
+        .setStrokeStyle(2, 0xffffff, 0.7)
+        .setDepth(111);
+
+      this.tweens.add({
+        targets: spark,
+        scaleX: 1.7,
+        scaleY: 1.7,
+        alpha: 0,
+        duration: 210,
+        ease: "Sine.easeOut",
+        onComplete: () => spark.destroy()
+      });
+    }
+  }
+
+  private showSwordSlash(source: PlayerAvatar | undefined, event: CombatEvent): void {
+    const color = parseCssColor(event.color);
+    const direction = source?.lastState.direction ?? "down";
+    const origin = source
+      ? {
+          x: source.sprite.x + vectorForDirection(direction).x * 34,
+          y: source.sprite.y + vectorForDirection(direction).y * 34 - 10
+        }
       : { x: event.x, y: event.y };
-    const projectile = this.add.circle(start.x, start.y, event.itemDefinitionId === "sword" ? 11 : 6, parseCssColor(event.color), 0.92)
+    const arc = slashArcForDirection(direction);
+    const slash = this.add.graphics().setDepth(109);
+
+    slash.lineStyle(9, 0xfff8c7, 0.82);
+    slash.beginPath();
+    slash.arc(origin.x, origin.y, 38, arc.start, arc.end, false);
+    slash.strokePath();
+    slash.lineStyle(4, color, 0.72);
+    slash.beginPath();
+    slash.arc(origin.x, origin.y, 49, arc.start + 0.1, arc.end - 0.1, false);
+    slash.strokePath();
+
+    const hit = this.add
+      .circle(event.x, event.y, 12, color, 0.18)
+      .setStrokeStyle(2, 0xfff8c7, 0.55)
+      .setDepth(108);
+
+    this.tweens.add({
+      targets: [slash, hit],
+      alpha: 0,
+      duration: 190,
+      ease: "Sine.easeOut",
+      onComplete: () => {
+        slash.destroy();
+        hit.destroy();
+      }
+    });
+  }
+
+  private showWeaponProjectile(
+    source: PlayerAvatar | undefined,
+    itemDefinitionId: ItemDefinitionId,
+    event: CombatEvent
+  ): void {
+    const iconKey = itemIconTextureKey(itemDefinitionId);
+    const heldOffset = source ? heldItemOffset(source.lastState.direction) : { x: 0, y: -10, angle: 0 };
+    const start = source
+      ? { x: source.sprite.x + heldOffset.x, y: source.sprite.y + heldOffset.y }
+      : { x: event.x, y: event.y };
+    const color = parseCssColor(event.color);
+    const projectile = this.textures.exists(iconKey)
+      ? this.add
+          .image(start.x, start.y, iconKey)
+          .setScale(itemDefinitionId === "rock" ? 0.44 : 0.52)
+          .setAngle(heldOffset.angle)
+          .setDepth(106)
+      : this.add.circle(start.x, start.y, 7, color, 0.92).setDepth(106);
+
+    const glow = this.add
+      .circle(start.x, start.y, itemDefinitionId === "magic-wand" ? 12 : 9, color, itemDefinitionId === "magic-wand" ? 0.22 : 0.12)
       .setDepth(105);
 
     this.tweens.add({
       targets: projectile,
       x: event.x,
       y: event.y,
-      alpha: 0.2,
-      duration: event.itemDefinitionId === "sword" ? 120 : 220,
+      angle: projectile.angle + (itemDefinitionId === "rock" ? 720 : 120),
+      alpha: 0.24,
+      duration: itemDefinitionId === "rock" ? 230 : 260,
       ease: "Quad.easeOut",
       onComplete: () => projectile.destroy()
+    });
+
+    this.tweens.add({
+      targets: glow,
+      x: event.x,
+      y: event.y,
+      scaleX: 1.45,
+      scaleY: 1.45,
+      alpha: 0,
+      duration: itemDefinitionId === "rock" ? 230 : 260,
+      ease: "Quad.easeOut",
+      onComplete: () => glow.destroy()
     });
   }
 
@@ -3220,6 +3359,38 @@ const heldItemOffset = (
   }
 
   return { x: 21, y: -16, angle: 18 };
+};
+
+const vectorForDirection = (direction: Direction): { x: number; y: number } => {
+  if (direction === "left") {
+    return { x: -1, y: 0 };
+  }
+
+  if (direction === "right") {
+    return { x: 1, y: 0 };
+  }
+
+  if (direction === "up") {
+    return { x: 0, y: -1 };
+  }
+
+  return { x: 0, y: 1 };
+};
+
+const slashArcForDirection = (direction: Direction): { start: number; end: number } => {
+  if (direction === "left") {
+    return { start: Phaser.Math.DegToRad(125), end: Phaser.Math.DegToRad(235) };
+  }
+
+  if (direction === "right") {
+    return { start: Phaser.Math.DegToRad(-55), end: Phaser.Math.DegToRad(55) };
+  }
+
+  if (direction === "up") {
+    return { start: Phaser.Math.DegToRad(215), end: Phaser.Math.DegToRad(325) };
+  }
+
+  return { start: Phaser.Math.DegToRad(35), end: Phaser.Math.DegToRad(145) };
 };
 
 const npcCharacterProfile = (npc: AmbientNpcNetworkState): CharacterTextureProfile => {

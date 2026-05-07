@@ -88,7 +88,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 14;
+export const WULAND_PROTOCOL_VERSION = 15;
 export const PLAYER_STARTING_MONEY = 999_999;
 
 export const GENDERS = ["male", "female"] as const;
@@ -1409,6 +1409,10 @@ export interface DeletePlayerRequest {
   code?: string;
 }
 
+export interface ClearChatRequest {
+  code?: string;
+}
+
 export interface ForceDeletedEvent {
   playerId: string;
   message: string;
@@ -1714,6 +1718,12 @@ export const isDeletePlayerRequest = (value: unknown): value is DeletePlayerRequ
   isRecord(value) &&
   isNonEmptyString(value.playerId) &&
   (value.code === undefined || typeof value.code === "string");
+
+export const isClearChatRequest = (value: unknown): value is ClearChatRequest =>
+  value === undefined ||
+  value === null ||
+  (isRecord(value) &&
+    (value.code === undefined || typeof value.code === "string"));
 
 export const isDroppedItemNetworkState = (value: unknown): value is DroppedItemNetworkState =>
   isRecord(value) &&

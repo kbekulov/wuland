@@ -219,6 +219,17 @@ export class PlayerStore {
     this.scheduleSave();
   }
 
+  clearChatMessages(options: { immediate?: boolean } = {}): void {
+    this.chatMessages = [];
+
+    if (options.immediate) {
+      void this.saveNow();
+      return;
+    }
+
+    this.scheduleSave();
+  }
+
   private loadPlayers(value: unknown): void {
     if (value === undefined) {
       return;

@@ -34,6 +34,7 @@ import {
   isBuyItemRequest,
   isCakeItemDefinitionId,
   isChatRequest,
+  isClearChatRequest,
   isCombatRequest,
   isDeleteDroppedItemRequest,
   isDeletePlayerRequest,
@@ -58,6 +59,7 @@ import {
   type AmbientNpcNetworkState,
   type AmbientNpcType,
   type ChatMessage,
+  type ClearChatRequest,
   type CombatEvent,
   type CombatRequest,
   type DeleteDroppedItemRequest,
@@ -472,6 +474,16 @@ export class WulandRoom extends Room<WulandRoomState> {
       }
 
       this.deletePlayer(playerId, message);
+    });
+
+    this.onMessage("clearChat", (client, message: unknown) => {
+      const playerId = this.sessionToPlayerId.get(client.sessionId);
+
+      if (!playerId || !isClearChatRequest(message)) {
+        return;
+      }
+
+      this.clearChat(playerId, message);
     });
 
     this.setSimulationInterval(
@@ -1829,6 +1841,23 @@ export class WulandRoom extends Room<WulandRoomState> {
     if (targetClient) {
       targetClient.leave(FORCE_DELETED_CLOSE_CODE, "PLAYER_DELETED");
     }
+  }
+
+  private clearChat(requesterId: string, request: ClearChatRequest): void {
+    const requester = this.state.players.get(requesterId);
+
+    if (!requester || !requester.online || !this.canUseGodMode(requester, request.code)) {
+      return;
+    }
+
+    this.playerStore.clearChatMessages({ immediate: true });
+    this.broadcast("chatCleared", {
+      clearedByPlayerId: requester.playerId,
+      clearedByName: requester.name,
+      clearedAt: new Date().toISOString()
+    });
+    this.broadcastCombatEvent("notice", requester.playerId, requester.playerId, requester.x, requester.y, 0, "Chat cleared", "#ffd8a8");
+    console.log(`[WULAND][GOD] chat cleared by ${requester.name} (${requester.playerId})`);
   }
 
   private canUseGodMode(player: WulandPlayerSchema, code: string | undefined): boolean {

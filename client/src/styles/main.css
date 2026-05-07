@@ -613,10 +613,19 @@ label span,
   border: 1px solid rgba(255, 135, 135, 0.35);
 }
 
+.god-clear-chat-button {
+  display: none;
+  border: 1px solid rgba(255, 216, 168, 0.35);
+}
+
 .wuland-hud[data-god-mode-active="true"] .god-button {
   background: #ff8787;
   color: #2b1114;
   box-shadow: 0 0 0 3px rgba(255, 135, 135, 0.18);
+}
+
+.wuland-hud[data-god-mode-active="true"] .god-clear-chat-button {
+  display: inline-flex;
 }
 
 .hud-class {

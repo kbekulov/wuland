@@ -191,7 +191,7 @@ Each overworld building keeps one permanent building title and one animated door
 
 God Mode is a prototype/admin cleanup tool, not production security.
 
-When enabled, click a dropped item in the current map to delete it from server state and JSON persistence. Click another player to delete their character from the map and persistent player records. God Mode cannot delete your own character.
+When enabled, click a dropped item in the current map to delete it from server state and JSON persistence. Click another player to delete their character from the map and persistent player records. God Mode also shows a Clear Chat button that removes persisted chat history for everyone. God Mode cannot delete your own character.
 
 If an online player is deleted, their client receives a deletion message, clears localStorage, and returns to character creation. Deleted offline/sleeping players are removed from the world. Deleted `playerId`s are saved in server JSON so the old localStorage identity cannot rejoin; the user must create a new character with a new `playerId`.
 

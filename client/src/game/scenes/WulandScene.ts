@@ -363,6 +363,7 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.on("wuland:discardHotbarItem", this.discardHotbarItem, this);
     this.game.events.on("wuland:buyMerchantItem", this.buyMerchantItem, this);
     this.game.events.on("wuland:sendChat", this.sendChatMessage, this);
+    this.game.events.on("wuland:clearChat", this.clearChatMessages, this);
     this.game.events.on("wuland:setGodMode", this.setGodMode, this);
     window.addEventListener("blur", this.handleWindowBlur);
     window.addEventListener("resize", this.handleViewportControlsChange);
@@ -431,6 +432,7 @@ export class WulandScene extends Phaser.Scene {
       room.onMessage("combatEvent", (event: CombatEvent) => this.handleCombatEvent(event));
       room.onMessage("chatHistory", (messages: ChatMessage[]) => this.handleChatHistory(messages));
       room.onMessage("chatMessage", (message: ChatMessage) => this.handleChatMessage(message));
+      room.onMessage("chatCleared", () => this.handleChatCleared());
       room.onMessage("speechBubble", (event: SpeechBubbleEvent) => this.handleSpeechBubble(event));
       room.onMessage("forceDeleted", (event: ForceDeletedEvent) => this.handleForceDeleted(event));
       room.onMessage("shopResult", (event: ShopResultEvent) => this.handleShopResult(event));
@@ -1466,6 +1468,16 @@ export class WulandScene extends Phaser.Scene {
     this.room?.send("chat", { text });
   }
 
+  private clearChatMessages(payload: { code?: string } = {}): void {
+    if (!this.canSendGameplayAction("clear chat")) {
+      return;
+    }
+
+    this.room?.send("clearChat", {
+      code: payload.code ?? this.godModeCode
+    });
+  }
+
   private canSendGameplayAction(actionLabel: string): boolean {
     if (!this.room) {
       this.setConnectionState({
@@ -2416,6 +2428,10 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.emit("wuland:chatHistory", messages);
   }
 
+  private handleChatCleared(): void {
+    this.game.events.emit("wuland:chatCleared");
+  }
+
   private handleSpeechBubble(event: SpeechBubbleEvent): void {
     if (event.mapId !== this.currentMapId) {
       return;
@@ -2982,6 +2998,7 @@ export class WulandScene extends Phaser.Scene {
     this.game.events.off("wuland:discardHotbarItem", this.discardHotbarItem, this);
     this.game.events.off("wuland:buyMerchantItem", this.buyMerchantItem, this);
     this.game.events.off("wuland:sendChat", this.sendChatMessage, this);
+    this.game.events.off("wuland:clearChat", this.clearChatMessages, this);
     this.game.events.off("wuland:setGodMode", this.setGodMode, this);
     window.removeEventListener("blur", this.handleWindowBlur);
     window.removeEventListener("resize", this.handleViewportControlsChange);

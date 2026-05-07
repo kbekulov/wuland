@@ -12,6 +12,7 @@ export class BootScene extends Phaser.Scene {
     this.createPlaceholderTexture("tile-grass-dark", 0x5f9f4b, 0x548d43);
     this.createPlaceholderTexture("tile-dirt", 0xb89058, 0xa47b47);
     this.loadItemIcons();
+    this.loadPetSprites();
   }
 
   create(): void {
@@ -51,6 +52,21 @@ export class BootScene extends Phaser.Scene {
       this.load.image(itemIconTextureKey(definition.itemDefinitionId), definition.iconAsset);
     });
   }
+
+  private loadPetSprites(): void {
+    [
+      { key: petSpriteTextureKey("cat"), path: "/assets/pets/cat.png" },
+      { key: petSpriteTextureKey("dog"), path: "/assets/pets/dog.png" }
+    ].forEach((asset) => {
+      if (this.textures.exists(asset.key)) {
+        return;
+      }
+
+      this.load.image(asset.key, asset.path);
+    });
+  }
 }
 
 const itemIconTextureKey = (itemDefinitionId: string): string => `item-icon-${itemDefinitionId}`;
+
+const petSpriteTextureKey = (type: "cat" | "dog"): string => `pet-sprite-${type}`;

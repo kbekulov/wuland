@@ -2079,7 +2079,7 @@ export class WulandScene extends Phaser.Scene {
     const definition = npcDefinitionFor(npc.npcId);
     const isPet = isPetNpcType(npc.type);
     const textureKey = isPet
-      ? createAnimalTexture(this, npc)
+      ? animalTextureKey(this, npc)
       : createCharacterTexture(this, npcCharacterProfile(npc));
     let avatar = this.npcAvatars.get(npc.npcId);
 
@@ -2088,7 +2088,7 @@ export class WulandScene extends Phaser.Scene {
         .circle(0, 4, 30, 0xffffff, 0)
         .setStrokeStyle(3, 0xfff3bf, 1)
         .setVisible(false);
-      const sprite = this.add.sprite(0, 0, textureKey).setScale(isPet ? 1.08 : 1.02);
+      const sprite = this.add.sprite(0, 0, textureKey).setScale(isPet ? 2.65 : 1.02);
       const hpY = isPet ? -42 : -67;
       const hpBg = this.add.rectangle(-30, hpY, 60, 6, 0x1f272a, 0.88).setOrigin(0, 0.5);
       const hpFill = this.add.rectangle(-30, hpY, 60, 6, 0x69db7c, 1).setOrigin(0, 0.5);
@@ -2101,7 +2101,8 @@ export class WulandScene extends Phaser.Scene {
           fontStyle: "bold",
           padding: { x: 4, y: 2 }
         })
-        .setOrigin(0.5);
+        .setOrigin(0.5)
+        .setVisible(!isPet);
       const nameLabel = this.add
         .text(0, isPet ? -56 : -80, npc.displayName, {
           fontFamily: "Arial, sans-serif",
@@ -2154,7 +2155,7 @@ export class WulandScene extends Phaser.Scene {
     const hpPercent = npc.maxHp > 0 ? Phaser.Math.Clamp(npc.hp / npc.maxHp, 0, 1) : 0;
     const petSleeping = isPet && npc.speechText === "Zzz" && npc.speechUntil > Date.now();
     avatar.nameLabel.setText(npc.displayName);
-    avatar.propLabel.setText(npcPropLabel(npc.type));
+    avatar.propLabel.setText(npcPropLabel(npc.type)).setVisible(!isPet);
     avatar.hpFill
       .setFillStyle(npc.defeated ? 0xff6b6b : hpPercent < 0.35 ? 0xffd43b : 0x69db7c)
       .setDisplaySize(60 * hpPercent, 6);
@@ -2167,7 +2168,7 @@ export class WulandScene extends Phaser.Scene {
     avatar.sprite
       .setFlipX(npc.direction === "left")
       .setAngle(petSleeping ? -18 : 0)
-      .setScale(isPet ? 1.08 : 1.02)
+      .setScale(isPet ? 2.65 : 1.02)
       .setAlpha(npc.defeated ? 0.46 : definition ? 1 : 0.95)
       .setTint(npc.defeated ? 0xffb3b3 : 0xffffff);
 
@@ -2219,6 +2220,12 @@ export class WulandScene extends Phaser.Scene {
     this.npcAvatars.forEach((avatar) => {
       avatar.container.x = Phaser.Math.Linear(avatar.container.x, avatar.target.x, interpolation);
       avatar.container.y = Phaser.Math.Linear(avatar.container.y, avatar.target.y, interpolation);
+
+      if (isPetNpcType(avatar.lastState.type)) {
+        const resting = avatar.lastState.speechText === "Zzz" && avatar.lastState.speechUntil > Date.now();
+        const bobPhase = this.time.now / 95 + petAnimationSeed(avatar.npcId);
+        avatar.sprite.y = resting ? 5 : avatar.lastState.moving ? Math.sin(bobPhase) * 1.7 : 0;
+      }
     });
   }
 
@@ -3406,11 +3413,17 @@ const npcCharacterProfile = (npc: AmbientNpcNetworkState): CharacterTextureProfi
   };
 };
 
-const createAnimalTexture = (scene: Phaser.Scene, npc: AmbientNpcNetworkState): string => {
+const animalTextureKey = (scene: Phaser.Scene, npc: AmbientNpcNetworkState): string => {
+  const petKey = petSpriteTextureKey(npc.type === "dog" ? "dog" : "cat");
+
+  if (scene.textures.exists(petKey)) {
+    return petKey;
+  }
+
   const definition = npcDefinitionFor(npc.npcId);
   const color = definition?.color ?? (npc.type === "cat" ? 0x5a3a2e : 0x8b5e34);
   const accent = definition?.accentColor ?? 0xfff3bf;
-  const textureKey = `animal-${npc.type}-${color.toString(16)}-${accent.toString(16)}`;
+  const textureKey = `fallback-animal-${npc.type}-${color.toString(16)}-${accent.toString(16)}`;
 
   if (scene.textures.exists(textureKey)) {
     return textureKey;
@@ -3452,6 +3465,18 @@ const createAnimalTexture = (scene: Phaser.Scene, npc: AmbientNpcNetworkState): 
   graphics.generateTexture(textureKey, 64, 64);
   graphics.destroy();
   return textureKey;
+};
+
+const petSpriteTextureKey = (type: "cat" | "dog"): string => `pet-sprite-${type}`;
+
+const petAnimationSeed = (npcId: string): number => {
+  let seed = 0;
+
+  for (let index = 0; index < npcId.length; index += 1) {
+    seed += npcId.charCodeAt(index) * (index + 1);
+  }
+
+  return seed % 19;
 };
 
 const npcPropLabel = (type: AmbientNpcNetworkState["type"]): string =>

@@ -20,6 +20,13 @@
 | --- | --- | --- | --- | --- | --- |
 | Mobile action controls | Lucide static icons: Sword, Sparkles, X, Settings, Hand, Cake Slice, Door Open, Package Open, Shopping Bag, Gift, Paw Print, Message Circle, Circle Help | Lucide Contributors | ISC | https://lucide.dev/ | Stroke width adjusted for WULAND touch readability and recolored through CSS masks. |
 
+## Pet Sprites
+
+| In-game use | Asset/source | Author | License | URL | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Cats | Tiny Creatures, `Tiles/tile_0095.png` | Clint Bellanger, made with Kenney's permission | CC0 1.0 | https://opengameart.org/content/tiny-creatures | Used as the WULAND cat sprite. |
+| Dogs | Tiny Creatures, `Tiles/tile_0170.png` | Clint Bellanger, made with Kenney's permission | CC0 1.0 | https://opengameart.org/content/tiny-creatures | Used as the WULAND dog sprite. |
+
 ## Generated Visuals
 
-Player sprites, NPC sprites, pet sprites, buildings, map interiors, enemies, arrows, speech bubbles, and UI shapes are generated locally with Phaser canvas drawing and CSS.
+Player sprites, non-pet NPC sprites, buildings, map interiors, enemies, arrows, speech bubbles, and UI shapes are generated locally with Phaser canvas drawing and CSS.

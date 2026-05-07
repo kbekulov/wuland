@@ -136,7 +136,7 @@ Weapons:
 - Magic Wand: longer-range magic projectile with medium damage.
 - Rock: thrown blunt projectile with lower damage.
 
-Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current item icons use CC0 assets from Kenney and OpenGameArt. Touch control icons use soft Lucide line icons. Credits live in `CREDITS.md` and `client/public/assets/CREDITS.md`.
+Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current item icons and pet sprites use CC0 assets from Kenney and OpenGameArt. Touch control icons use soft Lucide line icons. Credits live in `CREDITS.md` and `client/public/assets/CREDITS.md`.
 
 ## Merchant and Cakes
 

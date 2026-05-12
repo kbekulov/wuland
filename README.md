@@ -199,7 +199,7 @@ For a real public version, God Mode needs proper admin authentication and author
 
 ## Classes
 
-Classes are now identity and flavor only. Class labels, colors, and icons remain visible, but all classes can use the same weapons and items.
+Classes are now identity and flavor only. In-world class labels use readable titles such as `Sr Developer` or `App Engineer`, while all classes can use the same weapons and items.
 
 - Developer
 - Senior Developer

@@ -1888,7 +1888,7 @@ export class WulandScene extends Phaser.Scene {
     avatar.lastState = player;
     avatar.nameLabel.setText(player.name);
     avatar.classLabel
-      .setText(`${classMeta.iconText} ${classMeta.shortLabel}`)
+      .setText(playerClassTitleLabel(player.className))
       .setBackgroundColor(classMeta.color);
     avatar.statusLabel.setText(statusText).setVisible(statusText.length > 0);
     avatar.sleepLabel.setVisible(player.sleeping || !player.online);
@@ -3363,6 +3363,11 @@ const interiorPaletteForMap = (
 
 const npcDefinitionFor = (npcId: string) =>
   WULAND_AMBIENT_NPCS.find((npc) => npc.npcId === npcId);
+
+const playerClassTitleLabel = (className: PlayerNetworkState["className"]): string =>
+  CLASS_METADATA[className].displayName
+    .replace(/^Senior /, "Sr ")
+    .replace(/^Application /, "App ");
 
 const itemIconTextureKey = (itemDefinitionId: ItemDefinitionId): string =>
   `item-icon-${itemDefinitionId}`;

@@ -884,6 +884,10 @@ const itemIconMarkup = (
 const tooltipActionForItem = (itemDefinitionId: ItemDefinitionId): string => {
   const definition = ITEM_DEFINITIONS[itemDefinitionId];
 
+  if (itemDefinitionId === "flashlight") {
+    return "Select it in The Cave to light the way.";
+  }
+
   if (definition.itemType === "weapon") {
     return "Press Space to attack.";
   }

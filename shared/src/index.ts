@@ -97,7 +97,8 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 16;
+export const WULAND_PROTOCOL_VERSION = 17;
+export const FLASHLIGHT_ITEM_ID = "flashlight";
 export const PLAYER_STARTING_MONEY = 999_999;
 
 export const GENDERS = ["male", "female"] as const;
@@ -119,7 +120,8 @@ export const WULAND_MAP_IDS = [
   "bathroom",
   "kitchen",
   "busybeet",
-  "din_break"
+  "din_break",
+  "the_cave"
 ] as const;
 
 export type WulandMapId = (typeof WULAND_MAP_IDS)[number];
@@ -365,6 +367,17 @@ export const WULAND_MAPS: Record<WulandMapId, WulandMapDefinition> = {
     tileSize: INTERIOR_WORLD.tileSize,
     defaultSpawn: INTERIOR_WORLD.defaultSpawn,
     buildingName: "Din Break"
+  },
+  the_cave: {
+    id: "the_cave",
+    displayName: "The Cave",
+    width: INTERIOR_WORLD.width,
+    height: INTERIOR_WORLD.height,
+    tileSize: INTERIOR_WORLD.tileSize,
+    defaultSpawn: {
+      x: 480,
+      y: 560
+    }
   }
 };
 
@@ -512,6 +525,14 @@ export const INTERIOR_COLLISION_RECTS: Record<Exclude<WulandMapId, "overworld">,
     { id: "coffee-table", x: 376, y: 310, width: 208, height: 78 },
     { id: "vending-machine", x: 760, y: 402, width: 72, height: 134 },
     { id: "snack-counter", x: 116, y: 492, width: 226, height: 56 }
+  ],
+  the_cave: [
+    ...INTERIOR_WALL_COLLISION_RECTS,
+    { id: "stone-column-left", x: 132, y: 162, width: 78, height: 132 },
+    { id: "stone-column-right", x: 746, y: 132, width: 92, height: 148 },
+    { id: "fallen-rocks", x: 306, y: 348, width: 156, height: 76 },
+    { id: "deep-pool", x: 604, y: 396, width: 184, height: 116 },
+    { id: "crystal-cluster", x: 164, y: 512, width: 104, height: 76 }
   ]
 };
 
@@ -610,6 +631,22 @@ export const WULAND_PORTALS: PortalDefinition[] = [
     destination: { x: 1095, y: 956 },
     label: "exit to WULAND",
     buildingName: "Din Break"
+  },
+  {
+    id: "overworld-to-the-cave",
+    fromMapId: "overworld",
+    toMapId: "the_cave",
+    sourceRect: { id: "door-the-cave", x: 720, y: 28, width: 160, height: 78 },
+    destination: { x: 480, y: 560 },
+    label: "enter The Cave"
+  },
+  {
+    id: "the-cave-to-overworld",
+    fromMapId: "the_cave",
+    toMapId: "overworld",
+    sourceRect: { id: "exit-the-cave", x: 430, y: 620, width: 100, height: 72 },
+    destination: { x: 800, y: 124 },
+    label: "exit to WULAND"
   }
 ];
 
@@ -854,7 +891,8 @@ export const ITEM_DEFINITION_IDS = [
   "fruit-cake",
   "honey-cake",
   "cheese-cake",
-  "mystery-cake"
+  "mystery-cake",
+  "flashlight"
 ] as const;
 export type ItemDefinitionId = (typeof ITEM_DEFINITION_IDS)[number];
 export type ItemType = "weapon" | "consumable" | "misc";
@@ -996,6 +1034,16 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     healAmountMin: 12,
     healAmountMax: 52,
     giftable: true
+  },
+  flashlight: {
+    itemDefinitionId: "flashlight",
+    displayName: "Flashlight",
+    itemType: "misc",
+    iconText: "LGT",
+    iconAsset: "/assets/items/flashlight.png",
+    description: "Select it in your hotbar to light dark places like The Cave.",
+    stackable: false,
+    maxStack: 1
   }
 } as const;
 
@@ -1040,7 +1088,8 @@ export const WULAND_MERCHANT_STOCK: MerchantStockItem[] = [
   { itemDefinitionId: "fruit-cake", price: 1200, priceLabel: "1,200 WULAND coins" },
   { itemDefinitionId: "honey-cake", price: 2000, priceLabel: "2,000 WULAND coins" },
   { itemDefinitionId: "cheese-cake", price: 1800, priceLabel: "1,800 WULAND coins" },
-  { itemDefinitionId: "mystery-cake", price: 2500, priceLabel: "2,500 WULAND coins" }
+  { itemDefinitionId: "mystery-cake", price: 2500, priceLabel: "2,500 WULAND coins" },
+  { itemDefinitionId: "flashlight", price: 3500, priceLabel: "3,500 WULAND coins" }
 ] as const;
 
 export const AMBIENT_NPC_TYPES = [

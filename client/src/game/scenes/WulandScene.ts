@@ -6,6 +6,7 @@ import {
   CLASS_METADATA,
   DEFAULT_COSMETICS,
   ENEMY_DEFINITIONS,
+  FLASHLIGHT_ITEM_ID,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
   WULAND_AMBIENT_NPCS,
@@ -256,6 +257,8 @@ export class WulandScene extends Phaser.Scene {
   private clickTarget?: Phaser.Math.Vector2;
   private destinationMarker?: Phaser.GameObjects.Arc;
   private merchantSpeechTimer?: Phaser.Time.TimerEvent;
+  private caveDarkness?: Phaser.GameObjects.Graphics;
+  private caveNotice?: Phaser.GameObjects.Text;
   private targetStartedAt = 0;
   private lastTargetDistance = Number.POSITIVE_INFINITY;
   private lastTargetProgressAt = 0;
@@ -384,6 +387,7 @@ export class WulandScene extends Phaser.Scene {
     const localPlayer = this.latestPlayers.get(this.profile.playerId);
 
     if (localPlayer) {
+      this.updateCaveVisibility(localPlayer);
       this.updateClickTarget(localPlayer, time);
       this.updateInteractionContext(localPlayer);
       this.updateMobileControlHints(localPlayer);
@@ -479,6 +483,11 @@ export class WulandScene extends Phaser.Scene {
       return;
     }
 
+    if (mapId === "the_cave") {
+      this.drawCave();
+      return;
+    }
+
     this.drawInterior(mapId);
   }
 
@@ -490,6 +499,8 @@ export class WulandScene extends Phaser.Scene {
   private clearWorldObjects(): void {
     this.merchantSpeechTimer?.remove(false);
     this.merchantSpeechTimer = undefined;
+    this.caveDarkness = undefined;
+    this.caveNotice = undefined;
     this.destroyAllSpeechBubbles();
     this.worldObjects.forEach((object) => {
       this.tweens.killTweensOf(object);
@@ -517,6 +528,7 @@ export class WulandScene extends Phaser.Scene {
 
     BUILDING_LAYOUT.forEach((building) => this.drawBuilding(building));
     TREE_OBSTACLES.forEach((tree) => this.drawTree(tree.x, tree.y));
+    this.drawCaveEntrance();
     this.drawPortalMarkers(WULAND_MAP_ID);
     this.drawMerchant();
   }
@@ -625,6 +637,25 @@ export class WulandScene extends Phaser.Scene {
     this.addWorld(this.add.circle(x + 20, y + 12, 24, 0x2f8f3a).setDepth(11));
   }
 
+  private drawCaveEntrance(): void {
+    const x = WULAND_WORLD.width / 2;
+    const y = 56;
+    this.addWorld(this.add.ellipse(x, y + 18, 190, 92, 0x111820, 0.92).setDepth(15));
+    this.addWorld(this.add.ellipse(x, y + 24, 132, 62, 0x020509, 1).setDepth(16));
+    this.addWorld(this.add.arc(x - 62, y + 23, 26, 265, 92, false, 0x33423a, 0.8).setDepth(17));
+    this.addWorld(this.add.arc(x + 62, y + 23, 26, 88, 275, false, 0x33423a, 0.8).setDepth(17));
+    this.addWorld(this.add
+      .text(x, y + 72, "The Cave", {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "16px",
+        color: "#f5f1d5",
+        backgroundColor: "rgba(10, 15, 18, 0.78)",
+        padding: { x: 7, y: 3 }
+      })
+      .setOrigin(0.5)
+      .setDepth(18));
+  }
+
   private drawMerchant(): void {
     const { x, y } = WULAND_MERCHANT;
     const merchantTexture = createCharacterTexture(this, {
@@ -721,6 +752,68 @@ export class WulandScene extends Phaser.Scene {
     }
 
     this.drawPortalMarkers(mapId);
+  }
+
+  private drawCave(): void {
+    const map = WULAND_MAPS.the_cave;
+    const graphics = this.addWorld(this.add.graphics());
+    graphics.fillStyle(0x171c22, 1);
+    graphics.fillRect(0, 0, map.width, map.height);
+
+    for (let y = 32; y < map.height - 32; y += 32) {
+      for (let x = 32; x < map.width - 32; x += 32) {
+        graphics.fillStyle((x / 32 + y / 32) % 3 === 0 ? 0x202832 : 0x12171d, 1);
+        graphics.fillRect(x, y, 32, 32);
+      }
+    }
+
+    graphics.fillStyle(0x0a0f13, 1);
+    graphics.fillRect(0, 0, map.width, 32);
+    graphics.fillRect(0, map.height - 32, 430, 32);
+    graphics.fillRect(530, map.height - 32, 430, 32);
+    graphics.fillRect(0, 0, 32, map.height);
+    graphics.fillRect(map.width - 32, 0, 32, map.height);
+    graphics.fillStyle(0x2f3b47, 1);
+    graphics.fillEllipse(171, 225, 110, 150);
+    graphics.fillEllipse(792, 208, 126, 168);
+    graphics.fillEllipse(384, 386, 182, 92);
+    graphics.fillStyle(0x0e2933, 1);
+    graphics.fillEllipse(696, 455, 218, 144);
+    graphics.fillStyle(0x35d0ba, 0.34);
+    graphics.fillCircle(166, 524, 18);
+    graphics.fillCircle(204, 543, 11);
+    graphics.fillCircle(132, 548, 13);
+    graphics.setDepth(2);
+
+    this.addWorld(this.add
+      .text(480, 74, "The Cave", {
+        fontFamily: "Georgia, serif",
+        fontSize: "32px",
+        color: "#d8f5e5",
+        stroke: "#05080b",
+        strokeThickness: 5
+      })
+      .setOrigin(0.5)
+      .setDepth(15));
+    this.addWorld(this.add
+      .rectangle(480, 686, 100, 52, 0x140b08, 1)
+      .setStrokeStyle(3, 0x8f6b3f, 0.95)
+      .setDepth(13));
+    this.drawPortalMarkers("the_cave");
+    this.caveDarkness = this.addWorld(this.add.graphics().setScrollFactor(0).setDepth(146));
+    this.caveNotice = this.addWorld(this.add
+      .text(0, 0, "", {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "16px",
+        color: "#fff8e7",
+        backgroundColor: "rgba(7, 10, 13, 0.82)",
+        align: "center",
+        padding: { x: 10, y: 7 },
+        wordWrap: { width: 320, useAdvancedWrap: true }
+      })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(147));
   }
 
   private drawInteriorBase(
@@ -2313,6 +2406,53 @@ export class WulandScene extends Phaser.Scene {
         nearbyPetName
       });
     }
+  }
+
+  private updateCaveVisibility(player: PlayerNetworkState): void {
+    if (this.currentMapId !== "the_cave" || !this.caveDarkness || !this.caveNotice) {
+      return;
+    }
+
+    const selectedItem = player.inventory[player.selectedHotbarSlot];
+    const flashlightSelected = selectedItem?.itemDefinitionId === FLASHLIGHT_ITEM_ID;
+
+    if (flashlightSelected) {
+      this.caveDarkness.clear();
+      this.caveNotice.setVisible(false);
+      return;
+    }
+
+    const camera = this.cameras.main;
+    const width = camera.width;
+    const height = camera.height;
+    const playerScreenX = (player.x - camera.worldView.x) * camera.zoom;
+    const playerScreenY = (player.y - camera.worldView.y) * camera.zoom;
+    const radius = 92;
+    const left = Phaser.Math.Clamp(playerScreenX - radius, 0, width);
+    const right = Phaser.Math.Clamp(playerScreenX + radius, 0, width);
+    const top = Phaser.Math.Clamp(playerScreenY - radius, 0, height);
+    const bottom = Phaser.Math.Clamp(playerScreenY + radius, 0, height);
+
+    this.caveDarkness.clear();
+    this.caveDarkness.fillStyle(0x020407, 0.88);
+    this.caveDarkness.fillRect(0, 0, width, top);
+    this.caveDarkness.fillRect(0, bottom, width, Math.max(0, height - bottom));
+    this.caveDarkness.fillRect(0, top, left, Math.max(0, bottom - top));
+    this.caveDarkness.fillRect(right, top, Math.max(0, width - right), Math.max(0, bottom - top));
+    this.caveDarkness.lineStyle(2, 0xfff3bf, 0.18);
+    this.caveDarkness.strokeCircle(playerScreenX, playerScreenY, radius);
+
+    const hasFlashlight = player.inventory.some((slot) => slot.itemDefinitionId === FLASHLIGHT_ITEM_ID);
+    const noticeY = height > width ? Math.min(height * 0.32, 260) : 72;
+    this.caveNotice
+      .setWordWrapWidth(Math.min(width - 48, 360), true)
+      .setText(
+        hasFlashlight
+          ? "Select your Flashlight in the hotbar to light the cave."
+          : "The cave swallows the light. Buy a Flashlight from the merchant, then select it in your hotbar to explore safely."
+      )
+      .setPosition(width / 2, noticeY)
+      .setVisible(true);
   }
 
   private updateVisitedBuildings(player: PlayerNetworkState): void {

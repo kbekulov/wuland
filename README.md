@@ -93,6 +93,8 @@ The overworld is the main WULAND village. The five buildings now have separate i
 - BusyBeet: busy workspace with desks, notice board, and productivity props.
 - Din Break: relaxed break room with couches, vending machine, and coffee table.
 
+The Cave is a separate dark location reached through the cave mouth at the top of the overworld. Inside, visibility is deliberately tiny until the player buys a Flashlight from the Odd Merchant and selects that Flashlight in the hotbar. Selecting a weapon, cake, or any other item puts the cave back into low-visibility mode so the game teaches that the active hotbar item matters.
+
 Each overworld building has a doorway marker and hovering arrow. Each interior has an exit door with its own marker. Entering an interior marks that building as visited in localStorage progress.
 
 Players, sleeping players, enemies, dropped items, and prompts are filtered by map. You only see online or sleeping players who are in the same map as you. Dropped items stay in the map where they were dropped, so a cake dropped in Kitchen remains in Kitchen until someone in Kitchen picks it up.
@@ -136,6 +138,10 @@ Weapons:
 - Magic Wand: longer-range magic projectile with medium damage.
 - Rock: thrown blunt projectile with lower damage.
 
+Exploration items:
+
+- Flashlight: sold by the Odd Merchant. Select it in The Cave to light the area; it only works while it is the selected hotbar item.
+
 Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current item icons and pet sprites use CC0 assets from Kenney and OpenGameArt. Touch control icons use soft Lucide line icons. Credits live in `CREDITS.md` and `client/public/assets/CREDITS.md`.
 
 ## Merchant and Cakes
@@ -154,6 +160,7 @@ The merchant sells:
 - Honey Cake: 2,000 coins
 - Cheese Cake: 1,800 coins
 - Mystery Cake: 2,500 coins
+- Flashlight: 3,500 coins
 
 Buying is server-authoritative: click `Buy`, the server validates the item, money, and inventory space, subtracts the price, and adds the item to the authoritative hotbar. The shop now shows direct purchase feedback from the server, such as `Bought Sword`, `Inventory full`, or `Shop is too far away`. If the inventory is full, the purchase is blocked.
 

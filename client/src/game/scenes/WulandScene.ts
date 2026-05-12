@@ -2459,31 +2459,28 @@ export class WulandScene extends Phaser.Scene {
     const selectedItem = player.inventory[player.selectedHotbarSlot];
     const flashlightSelected = selectedItem?.itemDefinitionId === FLASHLIGHT_ITEM_ID;
 
-    if (flashlightSelected) {
-      this.caveDarkness.clear();
-      this.caveNotice.setVisible(false);
-      return;
-    }
-
     const camera = this.cameras.main;
     const width = camera.width;
     const height = camera.height;
     const playerScreenX = (player.x - camera.worldView.x) * camera.zoom;
     const playerScreenY = (player.y - camera.worldView.y) * camera.zoom;
-    const radius = 92;
-    const left = Phaser.Math.Clamp(playerScreenX - radius, 0, width);
-    const right = Phaser.Math.Clamp(playerScreenX + radius, 0, width);
-    const top = Phaser.Math.Clamp(playerScreenY - radius, 0, height);
-    const bottom = Phaser.Math.Clamp(playerScreenY + radius, 0, height);
+
+    if (flashlightSelected) {
+      this.caveDarkness.clear();
+      this.drawFlashlightOverlay(
+        this.caveDarkness,
+        width,
+        height,
+        playerScreenX,
+        playerScreenY,
+        player.direction
+      );
+      this.caveNotice.setVisible(false);
+      return;
+    }
 
     this.caveDarkness.clear();
-    this.caveDarkness.fillStyle(0x020407, 0.88);
-    this.caveDarkness.fillRect(0, 0, width, top);
-    this.caveDarkness.fillRect(0, bottom, width, Math.max(0, height - bottom));
-    this.caveDarkness.fillRect(0, top, left, Math.max(0, bottom - top));
-    this.caveDarkness.fillRect(right, top, Math.max(0, width - right), Math.max(0, bottom - top));
-    this.caveDarkness.lineStyle(2, 0xfff3bf, 0.18);
-    this.caveDarkness.strokeCircle(playerScreenX, playerScreenY, radius);
+    this.drawCaveLowLightOverlay(this.caveDarkness, width, height, playerScreenX, playerScreenY);
 
     const hasFlashlight = player.inventory.some((slot) => slot.itemDefinitionId === FLASHLIGHT_ITEM_ID);
     const noticeY = height > width ? Math.min(height * 0.32, 260) : 72;
@@ -2496,6 +2493,114 @@ export class WulandScene extends Phaser.Scene {
       )
       .setPosition(width / 2, noticeY)
       .setVisible(true);
+  }
+
+  private drawCaveLowLightOverlay(
+    graphics: Phaser.GameObjects.Graphics,
+    width: number,
+    height: number,
+    playerScreenX: number,
+    playerScreenY: number
+  ): void {
+    const radius = Math.max(70, Math.min(width, height) * 0.12);
+    const bandHeight = 8;
+
+    graphics.fillStyle(0x020407, 0.9);
+
+    for (let y = 0; y < height; y += bandHeight) {
+      const bandCenterY = y + bandHeight / 2;
+      const dy = bandCenterY - playerScreenY;
+
+      if (Math.abs(dy) >= radius) {
+        graphics.fillRect(0, y, width, bandHeight + 1);
+        continue;
+      }
+
+      const halfWidth = Math.sqrt(radius * radius - dy * dy);
+      const left = Phaser.Math.Clamp(playerScreenX - halfWidth, 0, width);
+      const right = Phaser.Math.Clamp(playerScreenX + halfWidth, 0, width);
+
+      graphics.fillRect(0, y, left, bandHeight + 1);
+      graphics.fillRect(right, y, Math.max(0, width - right), bandHeight + 1);
+    }
+
+    graphics.lineStyle(18, 0x020407, 0.28);
+    graphics.strokeCircle(playerScreenX, playerScreenY, radius + 10);
+    graphics.lineStyle(2, 0xfff3bf, 0.16);
+    graphics.strokeCircle(playerScreenX, playerScreenY, radius);
+    this.drawScreenVignette(graphics, width, height, 0.74);
+  }
+
+  private drawFlashlightOverlay(
+    graphics: Phaser.GameObjects.Graphics,
+    width: number,
+    height: number,
+    playerScreenX: number,
+    playerScreenY: number,
+    direction: Direction
+  ): void {
+    this.drawScreenVignette(graphics, width, height, 0.34);
+
+    const directionVector = vectorForDirection(direction);
+    const perpendicular = { x: -directionVector.y, y: directionVector.x };
+    const length = Math.min(Math.max(width, height) * 0.64, 620);
+    const farHalfWidth = Math.min(length * 0.42, 260);
+    const origin = {
+      x: playerScreenX + directionVector.x * 18,
+      y: playerScreenY + directionVector.y * 18
+    };
+    const end = {
+      x: origin.x + directionVector.x * length,
+      y: origin.y + directionVector.y * length
+    };
+    const left = {
+      x: end.x + perpendicular.x * farHalfWidth,
+      y: end.y + perpendicular.y * farHalfWidth
+    };
+    const right = {
+      x: end.x - perpendicular.x * farHalfWidth,
+      y: end.y - perpendicular.y * farHalfWidth
+    };
+
+    graphics.fillStyle(0xfff3bf, 0.06);
+    graphics.fillTriangle(origin.x, origin.y, left.x, left.y, right.x, right.y);
+    graphics.fillStyle(0xfff8dc, 0.08);
+    graphics.fillTriangle(
+      origin.x,
+      origin.y,
+      end.x + perpendicular.x * farHalfWidth * 0.58,
+      end.y + perpendicular.y * farHalfWidth * 0.58,
+      end.x - perpendicular.x * farHalfWidth * 0.58,
+      end.y - perpendicular.y * farHalfWidth * 0.58
+    );
+    graphics.lineStyle(2, 0xfff3bf, 0.18);
+    graphics.lineBetween(origin.x, origin.y, left.x, left.y);
+    graphics.lineBetween(origin.x, origin.y, right.x, right.y);
+    graphics.fillStyle(0xfff3bf, 0.12);
+    graphics.fillCircle(origin.x, origin.y, 54);
+  }
+
+  private drawScreenVignette(
+    graphics: Phaser.GameObjects.Graphics,
+    width: number,
+    height: number,
+    strength: number
+  ): void {
+    const layers = 18;
+    const maxInset = Math.min(width, height) * 0.38;
+
+    for (let index = 0; index < layers; index += 1) {
+      const inset = (index / layers) * maxInset;
+      const alpha = strength * Math.pow(1 - index / layers, 2) * 0.18;
+
+      graphics.lineStyle(Math.max(width, height) * 0.07, 0x020407, alpha);
+      graphics.strokeRect(
+        inset,
+        inset,
+        Math.max(0, width - inset * 2),
+        Math.max(0, height - inset * 2)
+      );
+    }
   }
 
   private updateVisitedBuildings(player: PlayerNetworkState): void {

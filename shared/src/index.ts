@@ -97,7 +97,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 17;
+export const WULAND_PROTOCOL_VERSION = 18;
 export const FLASHLIGHT_ITEM_ID = "flashlight";
 export const PLAYER_STARTING_MONEY = 999_999;
 
@@ -298,6 +298,16 @@ export const INTERIOR_WORLD = {
   } satisfies WorldPosition
 } as const;
 
+export const CAVE_WORLD = {
+  tileSize: 32,
+  width: 2560,
+  height: 2200,
+  defaultSpawn: {
+    x: 1280,
+    y: 2070
+  } satisfies WorldPosition
+} as const;
+
 export const BUILDING_TO_MAP_ID: Record<BuildingName, Exclude<WulandMapId, "overworld">> = {
   "RPA CoE": "rpa_coe",
   Bathroom: "bathroom",
@@ -371,13 +381,10 @@ export const WULAND_MAPS: Record<WulandMapId, WulandMapDefinition> = {
   the_cave: {
     id: "the_cave",
     displayName: "The Cave",
-    width: INTERIOR_WORLD.width,
-    height: INTERIOR_WORLD.height,
-    tileSize: INTERIOR_WORLD.tileSize,
-    defaultSpawn: {
-      x: 480,
-      y: 560
-    }
+    width: CAVE_WORLD.width,
+    height: CAVE_WORLD.height,
+    tileSize: CAVE_WORLD.tileSize,
+    defaultSpawn: CAVE_WORLD.defaultSpawn
   }
 };
 
@@ -485,6 +492,48 @@ const INTERIOR_WALL_COLLISION_RECTS: CollisionRectangle[] = [
   { id: "wall-right", x: INTERIOR_WORLD.width - 28, y: 0, width: 28, height: INTERIOR_WORLD.height }
 ];
 
+const CAVE_BOUNDARY_COLLISION_RECTS: CollisionRectangle[] = [
+  { id: "cave-wall-top", x: 0, y: 0, width: CAVE_WORLD.width, height: 32 },
+  { id: "cave-wall-bottom-left", x: 0, y: CAVE_WORLD.height - 32, width: 1180, height: 32 },
+  { id: "cave-wall-bottom-right", x: 1380, y: CAVE_WORLD.height - 32, width: 1180, height: 32 },
+  { id: "cave-wall-left", x: 0, y: 0, width: 32, height: CAVE_WORLD.height },
+  { id: "cave-wall-right", x: CAVE_WORLD.width - 32, y: 0, width: 32, height: CAVE_WORLD.height }
+];
+
+export const CAVE_TUNNEL_COLLISION_RECTS: CollisionRectangle[] = [
+  { id: "cave-spine-left-a", x: 520, y: 240, width: 96, height: 620 },
+  { id: "cave-spine-left-b", x: 520, y: 1030, width: 96, height: 760 },
+  { id: "cave-spine-mid-a", x: 1040, y: 120, width: 110, height: 520 },
+  { id: "cave-spine-mid-b", x: 1040, y: 820, width: 110, height: 430 },
+  { id: "cave-spine-mid-c", x: 1040, y: 1450, width: 110, height: 560 },
+  { id: "cave-spine-right-a", x: 1520, y: 260, width: 105, height: 820 },
+  { id: "cave-spine-right-b", x: 1520, y: 1260, width: 105, height: 620 },
+  { id: "cave-far-right-a", x: 2000, y: 140, width: 100, height: 560 },
+  { id: "cave-far-right-b", x: 2000, y: 900, width: 100, height: 850 },
+  { id: "cave-cross-a", x: 170, y: 420, width: 350, height: 90 },
+  { id: "cave-cross-b", x: 616, y: 640, width: 420, height: 95 },
+  { id: "cave-cross-c", x: 1150, y: 560, width: 370, height: 90 },
+  { id: "cave-cross-d", x: 1625, y: 760, width: 375, height: 90 },
+  { id: "cave-cross-e", x: 160, y: 1050, width: 580, height: 96 },
+  { id: "cave-cross-f", x: 740, y: 1260, width: 300, height: 96 },
+  { id: "cave-cross-g", x: 1150, y: 1180, width: 370, height: 96 },
+  { id: "cave-cross-h", x: 1625, y: 1120, width: 460, height: 96 },
+  { id: "cave-cross-i", x: 200, y: 1600, width: 450, height: 100 },
+  { id: "cave-cross-j", x: 740, y: 1760, width: 300, height: 96 },
+  { id: "cave-cross-k", x: 1150, y: 1680, width: 600, height: 96 },
+  { id: "cave-cross-l", x: 1760, y: 1880, width: 520, height: 96 },
+  { id: "cave-island-wet-stones", x: 270, y: 760, width: 170, height: 180 },
+  { id: "cave-island-bone-nook", x: 780, y: 250, width: 170, height: 160 },
+  { id: "cave-island-echo-loop", x: 1280, y: 920, width: 180, height: 150 },
+  { id: "cave-island-sunken-arch", x: 1850, y: 1480, width: 200, height: 180 },
+  { id: "cave-island-old-camp", x: 360, y: 1900, width: 230, height: 120 }
+];
+
+export const CAVE_COLLISION_RECTS: CollisionRectangle[] = [
+  ...CAVE_BOUNDARY_COLLISION_RECTS,
+  ...CAVE_TUNNEL_COLLISION_RECTS
+];
+
 export const INTERIOR_COLLISION_RECTS: Record<Exclude<WulandMapId, "overworld">, CollisionRectangle[]> = {
   rpa_coe: [
     ...INTERIOR_WALL_COLLISION_RECTS,
@@ -526,14 +575,7 @@ export const INTERIOR_COLLISION_RECTS: Record<Exclude<WulandMapId, "overworld">,
     { id: "vending-machine", x: 760, y: 402, width: 72, height: 134 },
     { id: "snack-counter", x: 116, y: 492, width: 226, height: 56 }
   ],
-  the_cave: [
-    ...INTERIOR_WALL_COLLISION_RECTS,
-    { id: "stone-column-left", x: 132, y: 162, width: 78, height: 132 },
-    { id: "stone-column-right", x: 746, y: 132, width: 92, height: 148 },
-    { id: "fallen-rocks", x: 306, y: 348, width: 156, height: 76 },
-    { id: "deep-pool", x: 604, y: 396, width: 184, height: 116 },
-    { id: "crystal-cluster", x: 164, y: 512, width: 104, height: 76 }
-  ]
+  the_cave: CAVE_COLLISION_RECTS
 };
 
 export const MAP_COLLISION_RECTS: Record<WulandMapId, CollisionRectangle[]> = {
@@ -637,14 +679,14 @@ export const WULAND_PORTALS: PortalDefinition[] = [
     fromMapId: "overworld",
     toMapId: "the_cave",
     sourceRect: { id: "door-the-cave", x: 720, y: 28, width: 160, height: 78 },
-    destination: { x: 480, y: 560 },
+    destination: CAVE_WORLD.defaultSpawn,
     label: "enter The Cave"
   },
   {
     id: "the-cave-to-overworld",
     fromMapId: "the_cave",
     toMapId: "overworld",
-    sourceRect: { id: "exit-the-cave", x: 430, y: 620, width: 100, height: 72 },
+    sourceRect: { id: "exit-the-cave", x: 1220, y: 2112, width: 120, height: 88 },
     destination: { x: 800, y: 124 },
     label: "exit to WULAND"
   }

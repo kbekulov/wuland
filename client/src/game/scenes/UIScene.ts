@@ -76,6 +76,7 @@ export class UIScene extends Phaser.Scene {
   private shopFeedback = "";
   private lastBuyIntent: { itemDefinitionId: ItemDefinitionId; sentAt: number } | null = null;
   private hotbarRenderKey = "";
+  private merchantRenderKey = "";
 
   constructor() {
     super("UIScene");
@@ -112,6 +113,7 @@ export class UIScene extends Phaser.Scene {
     this.root = document.createElement("div");
     this.root.className = "wuland-hud";
     this.hotbarRenderKey = "";
+    this.merchantRenderKey = "";
     this.root.innerHTML = `
       <section class="hud-card">
         <div class="hud-header">
@@ -365,6 +367,7 @@ export class UIScene extends Phaser.Scene {
     this.shopOpen = force;
     if (force) {
       this.shopFeedback = "";
+      this.merchantRenderKey = "";
     }
     this.render();
   }
@@ -642,6 +645,23 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
+    if (!this.shopOpen) {
+      return;
+    }
+
+    const renderKey = [
+      this.connection.money,
+      ...this.connection.inventory.map((slot) =>
+        `${slot.slotIndex}:${slot.itemDefinitionId}:${slot.itemInstanceId}:${slot.quantity}`
+      )
+    ].join("|");
+
+    if (renderKey === this.merchantRenderKey) {
+      return;
+    }
+
+    const previousScrollTop = stock.scrollTop;
+    this.merchantRenderKey = renderKey;
     stock.innerHTML = WULAND_MERCHANT_STOCK.map((stockItem) => {
       const definition = ITEM_DEFINITIONS[stockItem.itemDefinitionId];
       const canFit = canFitInventoryItem(this.connection.inventory, stockItem.itemDefinitionId);
@@ -669,6 +689,7 @@ export class UIScene extends Phaser.Scene {
         </article>
       `;
     }).join("");
+    stock.scrollTop = previousScrollTop;
   }
 
   private renderChatMessages(): void {
@@ -875,7 +896,8 @@ const itemIconMarkup = (
       class="item-icon-image"
       src="${escapeAttribute(definition.iconAsset)}"
       alt=""
-      loading="lazy"
+      loading="eager"
+      decoding="async"
       draggable="false"
     />
   `;

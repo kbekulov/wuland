@@ -3,6 +3,7 @@ import {
   BUILDING_NAMES,
   CHAT_MAX_MESSAGE_LENGTH,
   AMBIENT_NPC_MAX_HP,
+  CAVE_TUNNEL_COLLISION_RECTS,
   CLASS_METADATA,
   DEFAULT_COSMETICS,
   ENEMY_DEFINITIONS,
@@ -757,36 +758,78 @@ export class WulandScene extends Phaser.Scene {
   private drawCave(): void {
     const map = WULAND_MAPS.the_cave;
     const graphics = this.addWorld(this.add.graphics());
-    graphics.fillStyle(0x171c22, 1);
+    graphics.setDepth(2);
+    graphics.fillStyle(0x10151c, 1);
     graphics.fillRect(0, 0, map.width, map.height);
 
     for (let y = 32; y < map.height - 32; y += 32) {
       for (let x = 32; x < map.width - 32; x += 32) {
-        graphics.fillStyle((x / 32 + y / 32) % 3 === 0 ? 0x202832 : 0x12171d, 1);
+        const wobble = ((x / 32) * 7 + (y / 32) * 11) % 5;
+        graphics.fillStyle(wobble === 0 ? 0x18222b : wobble === 3 ? 0x0c1118 : 0x121922, 1);
         graphics.fillRect(x, y, 32, 32);
       }
     }
 
-    graphics.fillStyle(0x0a0f13, 1);
+    graphics.fillStyle(0x05080c, 1);
     graphics.fillRect(0, 0, map.width, 32);
-    graphics.fillRect(0, map.height - 32, 430, 32);
-    graphics.fillRect(530, map.height - 32, 430, 32);
+    graphics.fillRect(0, map.height - 32, 1180, 32);
+    graphics.fillRect(1380, map.height - 32, map.width - 1380, 32);
     graphics.fillRect(0, 0, 32, map.height);
     graphics.fillRect(map.width - 32, 0, 32, map.height);
-    graphics.fillStyle(0x2f3b47, 1);
-    graphics.fillEllipse(171, 225, 110, 150);
-    graphics.fillEllipse(792, 208, 126, 168);
-    graphics.fillEllipse(384, 386, 182, 92);
-    graphics.fillStyle(0x0e2933, 1);
-    graphics.fillEllipse(696, 455, 218, 144);
-    graphics.fillStyle(0x35d0ba, 0.34);
-    graphics.fillCircle(166, 524, 18);
-    graphics.fillCircle(204, 543, 11);
-    graphics.fillCircle(132, 548, 13);
-    graphics.setDepth(2);
+
+    CAVE_TUNNEL_COLLISION_RECTS.forEach((rect, index) => {
+      const shade = index % 3 === 0 ? 0x27323d : index % 3 === 1 ? 0x202a34 : 0x171f28;
+      graphics.fillStyle(shade, 1);
+      graphics.fillRect(rect.x, rect.y, rect.width, rect.height);
+      graphics.lineStyle(2, 0x080b10, 0.62);
+      graphics.strokeRect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2);
+
+      if (rect.width > 130 && rect.height > 70) {
+        graphics.fillStyle(0x111820, 0.34);
+        graphics.fillEllipse(
+          rect.x + rect.width * 0.35,
+          rect.y + rect.height * 0.45,
+          rect.width * 0.44,
+          rect.height * 0.42
+        );
+      }
+    });
+
+    [
+      { x: 330, y: 290, r: 20 },
+      { x: 920, y: 720, r: 15 },
+      { x: 1370, y: 1370, r: 23 },
+      { x: 2185, y: 560, r: 18 },
+      { x: 440, y: 1460, r: 17 },
+      { x: 2260, y: 1810, r: 22 }
+    ].forEach((crystal) => {
+      graphics.fillStyle(0x35d0ba, 0.2);
+      graphics.fillCircle(crystal.x, crystal.y, crystal.r * 2.4);
+      graphics.fillStyle(0x6cf2df, 0.46);
+      graphics.fillTriangle(
+        crystal.x,
+        crystal.y - crystal.r,
+        crystal.x - crystal.r * 0.56,
+        crystal.y + crystal.r,
+        crystal.x + crystal.r * 0.56,
+        crystal.y + crystal.r
+      );
+    });
+
+    [
+      { x: 182, y: 1360, w: 180, h: 92 },
+      { x: 820, y: 1510, w: 250, h: 120 },
+      { x: 1830, y: 338, w: 260, h: 128 },
+      { x: 2140, y: 1260, w: 210, h: 106 }
+    ].forEach((pool) => {
+      graphics.fillStyle(0x071d26, 0.78);
+      graphics.fillEllipse(pool.x, pool.y, pool.w, pool.h);
+      graphics.lineStyle(2, 0x3da4a6, 0.24);
+      graphics.strokeEllipse(pool.x, pool.y, pool.w, pool.h);
+    });
 
     this.addWorld(this.add
-      .text(480, 74, "The Cave", {
+      .text(1280, 2034, "The Cave", {
         fontFamily: "Georgia, serif",
         fontSize: "32px",
         color: "#d8f5e5",
@@ -796,7 +839,7 @@ export class WulandScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(15));
     this.addWorld(this.add
-      .rectangle(480, 686, 100, 52, 0x140b08, 1)
+      .rectangle(1280, 2156, 120, 48, 0x140b08, 1)
       .setStrokeStyle(3, 0x8f6b3f, 0.95)
       .setDepth(13));
     this.drawPortalMarkers("the_cave");

@@ -882,6 +882,8 @@ label span,
   image-rendering: pixelated;
   user-select: none;
   -webkit-user-drag: none;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .item-icon-fallback {
@@ -1037,6 +1039,7 @@ label span,
   padding: 20px;
   background: rgba(6, 14, 15, 0.56);
   pointer-events: auto;
+  z-index: 40;
 }
 
 .wuland-hud[data-help-open="true"] .help-overlay {
@@ -1059,10 +1062,12 @@ label span,
 
 .merchant-shop > div {
   display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 12px;
   width: min(760px, calc(100vw - 32px));
   max-height: min(720px, calc(100vh - 32px));
-  overflow: auto;
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .merchant-shop header {
@@ -1154,7 +1159,13 @@ label span,
 .merchant-stock {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
   gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .merchant-item {
@@ -1824,21 +1835,23 @@ body[data-touch-controls] .mobile-controls {
   .merchant-shop {
     align-items: end;
     padding: 8px;
+    touch-action: pan-y;
   }
 
   .help-overlay > div,
   .merchant-shop > div {
     width: 100%;
-    max-height: calc(100vh - 18px);
+    max-height: calc(100dvh - 18px);
     border-radius: 12px 12px 8px 8px;
   }
 
   .merchant-shop > div {
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
 
   .merchant-stock {
     grid-template-columns: 1fr;
+    padding-bottom: 8px;
   }
 
   .merchant-item {

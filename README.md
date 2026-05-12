@@ -93,7 +93,9 @@ The overworld is the main WULAND village. The five buildings now have separate i
 - BusyBeet: busy workspace with desks, notice board, and productivity props.
 - Din Break: relaxed break room with couches, vending machine, and coffee table.
 
-The Cave is a separate dark location reached through the cave mouth at the top of the overworld. It is a large, winding set of strange tunnels and dead-end passages rather than a single room. Inside, visibility is deliberately tiny with a heavy dark vignette until the player buys a Flashlight from the Odd Merchant and selects that Flashlight in the hotbar. Selecting the Flashlight keeps a lighter spooky vignette and shows a directed beam in the player's facing direction. Selecting a weapon, cake, or any other item puts the cave back into low-visibility mode so the game teaches that the active hotbar item matters.
+The Cave is a separate dark location reached through the cave mouth at the top of the overworld. It is a large, winding set of strange tunnels and dead-end passages rather than a single room. Inside, visibility is deliberately tiny with a heavy dark vignette until the player buys a Flashlight from the Odd Merchant and selects that Flashlight in the hotbar. Selecting the Flashlight keeps a lighter spooky vignette and shows a soft gradient beam in the player's facing direction, while the area behind the player remains darker. Selecting a weapon, cake, or any other item puts the cave back into low-visibility mode so the game teaches that the active hotbar item matters.
+
+Ambient NPCs, cats, and dogs do not enter The Cave. The cave uses cave-only Zombies instead; touching a Zombie deals 20% of the player's max HP as prototype dungeon damage.
 
 Each overworld building has a doorway marker and hovering arrow. Each interior has an exit door with its own marker. Entering an interior marks that building as visited in localStorage progress.
 

@@ -772,6 +772,21 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
+      if (normalizeMapId(npc.mapId) === "the_cave") {
+        const mapId = randomAmbientNpcMapId(normalizeMapId(npc.mapId));
+        const arrival = randomWalkablePosition(mapId);
+        npc.mapId = mapId;
+        npc.x = arrival.x;
+        npc.y = arrival.y;
+        npc.moving = false;
+        npc.speechText = "";
+        npc.speechUntil = 0;
+        this.npcTargets.set(npc.npcId, randomNpcTarget(npc));
+        this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
+        this.persistNpcIfNeeded(npc, now, true);
+        return;
+      }
+
       if (npc.defeated) {
         npc.moving = false;
         npc.speechText = "";
@@ -1019,7 +1034,10 @@ export class WulandRoom extends Room<WulandRoomState> {
     }
 
     this.enemyContactTimes.set(key, now);
-    this.damagePlayer(player, definition.damage, enemy.enemyId, now);
+    const contactDamage = enemy.type === "zombie"
+      ? Math.max(1, Math.ceil(player.maxHp * 0.2))
+      : definition.damage;
+    this.damagePlayer(player, contactDamage, enemy.enemyId, now);
   }
 
   private handleWeaponAttack(playerId: string, request: CombatRequest): void {
@@ -2170,9 +2188,14 @@ const npcFromDefinition = (
   record?: AmbientNpcNetworkState
 ): WulandNpcSchema => {
   const npc = new WulandNpcSchema();
-  const mapId = normalizeMapId(record?.mapId ?? definition.mapId);
+  const persistedMapId = normalizeMapId(record?.mapId ?? definition.mapId);
+  const mapId = persistedMapId === "the_cave"
+    ? normalizeMapId(definition.mapId)
+    : persistedMapId;
   const position = clampMapPosition(
-    record && isValidMapPosition({ x: record.x, y: record.y }, mapId)
+    record &&
+      persistedMapId === mapId &&
+      isValidMapPosition({ x: record.x, y: record.y }, mapId)
       ? { x: record.x, y: record.y }
       : { x: definition.x, y: definition.y },
     mapId
@@ -2223,9 +2246,10 @@ const normalizeNpcHp = (value: unknown, fallback: number, allowZero = false): nu
     ? Math.floor(value)
     : fallback;
 
-const randomMapIdExcept = (currentMapId: WulandMapId): WulandMapId => {
-  const candidates = WULAND_MAP_IDS.filter((mapId) => mapId !== currentMapId);
-  return randomChoice(candidates.length > 0 ? candidates : WULAND_MAP_IDS);
+const randomAmbientNpcMapId = (currentMapId: WulandMapId): WulandMapId => {
+  const allowedMaps = WULAND_MAP_IDS.filter((mapId) => mapId !== "the_cave");
+  const candidates = allowedMaps.filter((mapId) => mapId !== currentMapId);
+  return randomChoice(candidates.length > 0 ? candidates : allowedMaps);
 };
 
 const randomWalkablePosition = (mapId: WulandMapId): WorldPosition => {
@@ -2250,8 +2274,10 @@ const randomWalkablePosition = (mapId: WulandMapId): WorldPosition => {
 const randomNpcTarget = (npc: WulandNpcSchema): NpcTravelTarget => {
   const currentMapId = normalizeMapId(npc.mapId);
   const mapId = Math.random() < NPC_MAP_CHANGE_CHANCE
-    ? randomMapIdExcept(currentMapId)
-    : currentMapId;
+    ? randomAmbientNpcMapId(currentMapId)
+    : currentMapId === "the_cave"
+      ? randomAmbientNpcMapId(currentMapId)
+      : currentMapId;
 
   return {
     ...randomWalkablePosition(mapId),

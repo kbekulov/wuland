@@ -2539,6 +2539,7 @@ export class WulandScene extends Phaser.Scene {
     playerScreenY: number,
     direction: Direction
   ): void {
+    this.drawFlashlightBackShadow(graphics, width, height, playerScreenX, playerScreenY, direction);
     this.drawScreenVignette(graphics, width, height, 0.34);
 
     const directionVector = vectorForDirection(direction);
@@ -2553,31 +2554,69 @@ export class WulandScene extends Phaser.Scene {
       x: origin.x + directionVector.x * length,
       y: origin.y + directionVector.y * length
     };
-    const left = {
-      x: end.x + perpendicular.x * farHalfWidth,
-      y: end.y + perpendicular.y * farHalfWidth
-    };
-    const right = {
-      x: end.x - perpendicular.x * farHalfWidth,
-      y: end.y - perpendicular.y * farHalfWidth
-    };
 
-    graphics.fillStyle(0xfff3bf, 0.06);
-    graphics.fillTriangle(origin.x, origin.y, left.x, left.y, right.x, right.y);
-    graphics.fillStyle(0xfff8dc, 0.08);
+    for (let layer = 7; layer >= 1; layer -= 1) {
+      const t = layer / 7;
+      const layerEnd = {
+        x: origin.x + directionVector.x * length * t,
+        y: origin.y + directionVector.y * length * t
+      };
+      const layerHalfWidth = farHalfWidth * (0.18 + t * 0.82);
+      const alpha = 0.018 + (1 - t) * 0.034;
+
+      graphics.fillStyle(0xfff3bf, alpha);
+      graphics.fillTriangle(
+        origin.x,
+        origin.y,
+        layerEnd.x + perpendicular.x * layerHalfWidth,
+        layerEnd.y + perpendicular.y * layerHalfWidth,
+        layerEnd.x - perpendicular.x * layerHalfWidth,
+        layerEnd.y - perpendicular.y * layerHalfWidth
+      );
+    }
+
+    graphics.fillStyle(0xfff8dc, 0.085);
     graphics.fillTriangle(
       origin.x,
       origin.y,
-      end.x + perpendicular.x * farHalfWidth * 0.58,
-      end.y + perpendicular.y * farHalfWidth * 0.58,
-      end.x - perpendicular.x * farHalfWidth * 0.58,
-      end.y - perpendicular.y * farHalfWidth * 0.58
+      end.x + perpendicular.x * farHalfWidth * 0.46,
+      end.y + perpendicular.y * farHalfWidth * 0.46,
+      end.x - perpendicular.x * farHalfWidth * 0.46,
+      end.y - perpendicular.y * farHalfWidth * 0.46
     );
-    graphics.lineStyle(2, 0xfff3bf, 0.18);
-    graphics.lineBetween(origin.x, origin.y, left.x, left.y);
-    graphics.lineBetween(origin.x, origin.y, right.x, right.y);
+    graphics.lineStyle(2, 0xfff3bf, 0.12);
+    graphics.lineBetween(origin.x, origin.y, end.x + perpendicular.x * farHalfWidth, end.y + perpendicular.y * farHalfWidth);
+    graphics.lineBetween(origin.x, origin.y, end.x - perpendicular.x * farHalfWidth, end.y - perpendicular.y * farHalfWidth);
     graphics.fillStyle(0xfff3bf, 0.12);
     graphics.fillCircle(origin.x, origin.y, 54);
+  }
+
+  private drawFlashlightBackShadow(
+    graphics: Phaser.GameObjects.Graphics,
+    width: number,
+    height: number,
+    playerScreenX: number,
+    playerScreenY: number,
+    direction: Direction
+  ): void {
+    graphics.fillStyle(0x020407, 0.38);
+
+    if (direction === "up") {
+      graphics.fillRect(0, playerScreenY + 26, width, Math.max(0, height - playerScreenY - 26));
+      return;
+    }
+
+    if (direction === "down") {
+      graphics.fillRect(0, 0, width, Math.max(0, playerScreenY - 26));
+      return;
+    }
+
+    if (direction === "left") {
+      graphics.fillRect(playerScreenX + 26, 0, Math.max(0, width - playerScreenX - 26), height);
+      return;
+    }
+
+    graphics.fillRect(0, 0, Math.max(0, playerScreenX - 26), height);
   }
 
   private drawScreenVignette(

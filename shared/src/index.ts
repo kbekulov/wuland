@@ -97,7 +97,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 18;
+export const WULAND_PROTOCOL_VERSION = 19;
 export const FLASHLIGHT_ITEM_ID = "flashlight";
 export const PLAYER_STARTING_MONEY = 999_999;
 
@@ -709,7 +709,8 @@ export type EnemyType =
   | "angry-client"
   | "escalation-demon"
   | "legacy-system-golem"
-  | "standards-violation";
+  | "standards-violation"
+  | "zombie";
 
 export type CombatEventType =
   | "basic"
@@ -895,6 +896,20 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     radius: 20,
     color: 0xe67700,
     accentColor: 0xffd8a8
+  },
+  zombie: {
+    type: "zombie",
+    displayName: "Zombie",
+    maxHp: 70,
+    speed: 58,
+    damage: 24,
+    attackRange: 38,
+    aggroRange: 320,
+    contactCooldownMs: 1200,
+    respawnMs: 14000,
+    radius: 21,
+    color: 0x344e41,
+    accentColor: 0x95d5b2
   }
 } as const;
 
@@ -919,7 +934,15 @@ export const WULAND_ENEMY_SPAWNS: EnemySpawnDefinition[] = [
   { id: "escalation-demon-1", type: "escalation-demon", x: 1410, y: 1010, leashRadius: 220 },
   { id: "legacy-system-golem-1", type: "legacy-system-golem", x: 145, y: 1030, leashRadius: 210 },
   { id: "standards-violation-1", type: "standards-violation", x: 1030, y: 990, leashRadius: 190 },
-  { id: "task-slime-2", type: "task-slime", x: 640, y: 1035, leashRadius: 170 }
+  { id: "task-slime-2", type: "task-slime", x: 640, y: 1035, leashRadius: 170 },
+  { id: "cave-zombie-1", type: "zombie", mapId: "the_cave", x: 1280, y: 1900, leashRadius: 260 },
+  { id: "cave-zombie-2", type: "zombie", mapId: "the_cave", x: 860, y: 1540, leashRadius: 260 },
+  { id: "cave-zombie-3", type: "zombie", mapId: "the_cave", x: 1470, y: 720, leashRadius: 260 },
+  { id: "cave-zombie-4", type: "zombie", mapId: "the_cave", x: 2200, y: 830, leashRadius: 280 },
+  { id: "cave-zombie-5", type: "zombie", mapId: "the_cave", x: 850, y: 1110, leashRadius: 260 },
+  { id: "cave-zombie-6", type: "zombie", mapId: "the_cave", x: 390, y: 1520, leashRadius: 260 },
+  { id: "cave-zombie-7", type: "zombie", mapId: "the_cave", x: 1700, y: 1380, leashRadius: 270 },
+  { id: "cave-zombie-8", type: "zombie", mapId: "the_cave", x: 2360, y: 1900, leashRadius: 260 }
 ];
 
 export const HOTBAR_SLOT_COUNT = 9;

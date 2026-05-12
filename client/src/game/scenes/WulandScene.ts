@@ -1799,7 +1799,12 @@ export class WulandScene extends Phaser.Scene {
       : 0;
     const serverProtocolOk = serverProtocolVersion >= WULAND_PROTOCOL_VERSION;
     const protocolState = serverProtocolOk
-      ? {}
+      ? {
+          status: "connected" as const,
+          message: this.room
+            ? `Connected to room ${this.room.roomId}`
+            : "Connected to WULAND"
+        }
       : {
           status: "error" as const,
           message: `Server image is outdated. Recreate the NAS container so it runs protocol ${WULAND_PROTOCOL_VERSION}.`

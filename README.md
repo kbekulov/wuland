@@ -1,6 +1,6 @@
 # WULAND
 
-WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 11 keeps multiplayer movement, sleeping players, multi-map interiors, enemies, server-authoritative combat, shared weapons, inventory, merchant shopping, cakes, dropped items, NPCs, persistent chat, Data Analyst, and God Mode, then polishes item icons, NPC visuals, speech bubbles, and doorway labels.
+WULAND is a browser-playable 2D RPG-style village prototype for an RPA team. Phase 11 keeps multiplayer movement, sleeping players, multi-map interiors, enemies, server-authoritative combat, shared weapons, inventory, merchant shopping, cakes, dropped items, NPCs, persistent chat, Application Engineer, Data Analyst, and God Mode, then polishes item icons, NPC visuals, speech bubbles, and doorway labels.
 
 ## Local Development
 
@@ -208,8 +208,11 @@ Classes are now identity and flavor only. Class labels, colors, and icons remain
 - Product Owner
 - Senior Product Owner
 - Architect
+- Application Engineer
 - Controller
 - Data Analyst
+
+Application Engineers are application delivery specialists. They build, configure, integrate, and support the applications that keep teams moving. Like every other class, they use the shared weapon and inventory system.
 
 Data Analysts are insight / metrics specialists. They analyze data, find patterns, and turn raw numbers into useful decisions. Like every other class, they use the shared weapon and inventory system.
 

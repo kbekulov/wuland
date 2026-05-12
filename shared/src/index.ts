@@ -6,6 +6,7 @@ export const PLAYER_CLASSES = [
   "product owner",
   "senior product owner",
   "architect",
+  "application engineer",
   "controller",
   "data analyst"
 ] as const;
@@ -71,6 +72,14 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
     iconText: "BLU",
     futureRole: "system mage / engineer"
   },
+  "application engineer": {
+    displayName: "Application Engineer",
+    shortLabel: "AE",
+    color: "#0ea5e9",
+    iconText: "APP",
+    futureRole: "application delivery specialist",
+    description: "Builds, configures, integrates, and supports the applications that keep teams moving."
+  },
   controller: {
     displayName: "Controller",
     shortLabel: "CTRL",
@@ -88,7 +97,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 15;
+export const WULAND_PROTOCOL_VERSION = 16;
 export const PLAYER_STARTING_MONEY = 999_999;
 
 export const GENDERS = ["male", "female"] as const;

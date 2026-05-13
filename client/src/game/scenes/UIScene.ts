@@ -4,8 +4,11 @@ import {
   CHAT_HISTORY_LIMIT,
   CHAT_MAX_MESSAGE_LENGTH,
   CLASS_METADATA,
+  FLASHLIGHT_ITEM_ID,
+  FLASHLIGHT_MAX_CHARGE_MS,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
+  LIGHT_STICK_ITEM_ID,
   WULAND_MAP_ID,
   WULAND_MERCHANT_STOCK,
   getMapDisplayName,
@@ -48,7 +51,8 @@ export class UIScene extends Phaser.Scene {
       slotIndex,
       itemDefinitionId: "",
       itemInstanceId: "",
-      quantity: 0
+      quantity: 0,
+      chargeRemainingMs: 0
     })),
     selectedHotbarSlot: 0,
     money: 0,
@@ -610,6 +614,7 @@ export class UIScene extends Phaser.Scene {
     ).join("|") + `|selected:${this.connection.selectedHotbarSlot}`;
 
     if (renderKey === this.hotbarRenderKey) {
+      this.updateHotbarChargeBars();
       return;
     }
 
@@ -619,6 +624,7 @@ export class UIScene extends Phaser.Scene {
       const definition = slot.itemDefinitionId ? ITEM_DEFINITIONS[slot.itemDefinitionId] : null;
       const selected = slot.slotIndex === this.connection.selectedHotbarSlot;
       const count = definition?.stackable && slot.quantity > 1 ? `<span class="hotbar-count">${slot.quantity}</span>` : "";
+      const charge = flashlightChargeMarkup(slot);
       const tooltip = definition
         ? `${definition.displayName} (${definition.itemType}): ${definition.description} ${tooltipActionForItem(definition.itemDefinitionId)}`
         : `Empty slot ${slot.slotIndex + 1}`;
@@ -633,9 +639,11 @@ export class UIScene extends Phaser.Scene {
           ${itemIconMarkup(definition)}
           <small>${definition?.displayName ?? "Empty"}</small>
           ${count}
+          ${charge}
         </button>
       `;
     }).join("");
+    this.updateHotbarChargeBars();
   }
 
   private renderMerchantStock(): void {
@@ -690,6 +698,29 @@ export class UIScene extends Phaser.Scene {
       `;
     }).join("");
     stock.scrollTop = previousScrollTop;
+  }
+
+  private updateHotbarChargeBars(): void {
+    const slots = this.root?.querySelector("[data-hotbar-slots]");
+
+    if (!slots) {
+      return;
+    }
+
+    this.connection.inventory.forEach((slot) => {
+      const chargeBar = slots.querySelector<HTMLElement>(
+        `[data-hotbar-slot="${slot.slotIndex}"] .hotbar-charge i`
+      );
+
+      if (!chargeBar) {
+        return;
+      }
+
+      const percent = slot.itemDefinitionId === FLASHLIGHT_ITEM_ID
+        ? Math.max(0, Math.min(1, (slot.chargeRemainingMs ?? 0) / FLASHLIGHT_MAX_CHARGE_MS))
+        : 0;
+      chargeBar.style.width = `${Math.round(percent * 100)}%`;
+    });
   }
 
   private renderChatMessages(): void {
@@ -869,6 +900,20 @@ const canFitInventoryItem = (
 const formatMoney = (value: number): string =>
   Math.max(0, Math.floor(value)).toLocaleString("en-US");
 
+const flashlightChargeMarkup = (slot: InventorySlotState): string => {
+  if (slot.itemDefinitionId !== FLASHLIGHT_ITEM_ID) {
+    return "";
+  }
+
+  const percent = Math.max(0, Math.min(1, (slot.chargeRemainingMs ?? 0) / FLASHLIGHT_MAX_CHARGE_MS));
+
+  return `
+    <span class="hotbar-charge" aria-label="Flashlight charge">
+      <i style="width: ${Math.round(percent * 100)}%"></i>
+    </span>
+  `;
+};
+
 const prefersTouchLayout = (): boolean =>
   window.matchMedia("(pointer: coarse)").matches ||
   window.innerWidth <= 860;
@@ -908,6 +953,10 @@ const tooltipActionForItem = (itemDefinitionId: ItemDefinitionId): string => {
 
   if (itemDefinitionId === "flashlight") {
     return "Select it in The Cave to light the way.";
+  }
+
+  if (itemDefinitionId === LIGHT_STICK_ITEM_ID) {
+    return "Drag out of the hotbar to drop and light the cave.";
   }
 
   if (definition.itemType === "weapon") {

@@ -10,6 +10,8 @@ import {
   FLASHLIGHT_ITEM_ID,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
+  LIGHT_STICK_ITEM_ID,
+  LIGHT_STICK_RADIUS,
   WULAND_AMBIENT_NPCS,
   MAP_ID_TO_BUILDING_NAME,
   WULAND_MAP_ID,
@@ -2266,16 +2268,27 @@ export class WulandScene extends Phaser.Scene {
 
     avatar.lastState = item;
     avatar.container.setPosition(item.x, item.y);
+    const isLightStick = item.itemDefinitionId === LIGHT_STICK_ITEM_ID;
     const iconKey = itemIconTextureKey(item.itemDefinitionId);
     if (this.textures.exists(iconKey)) {
       avatar.icon.setTexture(iconKey).setVisible(true);
     } else {
       avatar.icon.setVisible(false);
     }
+    avatar.body
+      .setFillStyle(isLightStick ? 0x1f3d27 : 0x1f2c2e, isLightStick ? 0.94 : 0.9)
+      .setStrokeStyle(2, isLightStick ? 0xd9ff99 : 0xffe8a3, isLightStick ? 1 : 0.9);
     avatar.countLabel
       .setText(item.quantity > 1 ? String(item.quantity) : "")
       .setVisible(item.quantity > 1);
-    avatar.nameLabel.setText(definition.displayName);
+    const remainingSeconds = isLightStick && item.expiresAt
+      ? Math.max(0, Math.ceil((item.expiresAt - Date.now()) / 1000))
+      : 0;
+    avatar.nameLabel.setText(
+      isLightStick && remainingSeconds > 0
+        ? `${definition.displayName} ${remainingSeconds}s`
+        : definition.displayName
+    );
   }
 
   private renderNpc(npc: AmbientNpcNetworkState): void {
@@ -2520,13 +2533,16 @@ export class WulandScene extends Phaser.Scene {
     }
 
     const selectedItem = player.inventory[player.selectedHotbarSlot];
-    const flashlightSelected = selectedItem?.itemDefinitionId === FLASHLIGHT_ITEM_ID;
+    const flashlightSelected =
+      selectedItem?.itemDefinitionId === FLASHLIGHT_ITEM_ID &&
+      (selectedItem.chargeRemainingMs ?? 0) > 0;
 
     const camera = this.cameras.main;
     const width = camera.width;
     const height = camera.height;
     const playerScreenX = (player.x - camera.worldView.x) * camera.zoom;
     const playerScreenY = (player.y - camera.worldView.y) * camera.zoom;
+    const lightSticks = this.activeLightStickScreenSources(camera);
 
     if (flashlightSelected) {
       this.caveDarkness.clear();
@@ -2538,14 +2554,17 @@ export class WulandScene extends Phaser.Scene {
         playerScreenY,
         player.direction
       );
+      this.drawLightStickGlows(this.caveDarkness, lightSticks);
       this.caveNotice.setVisible(false);
       return;
     }
 
     this.caveDarkness.clear();
-    this.drawCaveLowLightOverlay(this.caveDarkness, width, height, playerScreenX, playerScreenY);
+    this.drawCaveLowLightOverlay(this.caveDarkness, width, height, playerScreenX, playerScreenY, lightSticks);
 
-    const hasFlashlight = player.inventory.some((slot) => slot.itemDefinitionId === FLASHLIGHT_ITEM_ID);
+    const hasFlashlight = player.inventory.some((slot) =>
+      slot.itemDefinitionId === FLASHLIGHT_ITEM_ID && (slot.chargeRemainingMs ?? 0) > 0
+    );
     const noticeY = height > width ? Math.min(height * 0.32, 260) : 72;
     this.caveNotice
       .setWordWrapWidth(Math.min(width - 48, 360), true)
@@ -2558,39 +2577,117 @@ export class WulandScene extends Phaser.Scene {
       .setVisible(true);
   }
 
+  private activeLightStickScreenSources(
+    camera: Phaser.Cameras.Scene2D.Camera
+  ): Array<{ x: number; y: number; radius: number }> {
+    const now = Date.now();
+    const sources: Array<{ x: number; y: number; radius: number }> = [];
+
+    this.latestDroppedItems.forEach((item) => {
+      if (
+        item.itemDefinitionId !== LIGHT_STICK_ITEM_ID ||
+        item.mapId !== this.currentMapId ||
+        !item.expiresAt ||
+        item.expiresAt <= now
+      ) {
+        return;
+      }
+
+      sources.push({
+        x: (item.x - camera.worldView.x) * camera.zoom,
+        y: (item.y - camera.worldView.y) * camera.zoom,
+        radius: LIGHT_STICK_RADIUS * camera.zoom
+      });
+    });
+
+    return sources;
+  }
+
+  private drawLightStickGlows(
+    graphics: Phaser.GameObjects.Graphics,
+    sources: Array<{ x: number; y: number; radius: number }>
+  ): void {
+    sources.forEach((source) => {
+      graphics.fillStyle(0x9dff8f, 0.055);
+      graphics.fillCircle(source.x, source.y, source.radius * 1.06);
+      graphics.fillStyle(0xd9ff99, 0.075);
+      graphics.fillCircle(source.x, source.y, source.radius * 0.64);
+      graphics.lineStyle(2, 0xd9ff99, 0.18);
+      graphics.strokeCircle(source.x, source.y, source.radius * 0.72);
+    });
+  }
+
   private drawCaveLowLightOverlay(
     graphics: Phaser.GameObjects.Graphics,
     width: number,
     height: number,
     playerScreenX: number,
-    playerScreenY: number
+    playerScreenY: number,
+    extraLights: Array<{ x: number; y: number; radius: number }> = []
   ): void {
     const radius = Math.max(70, Math.min(width, height) * 0.12);
     const bandHeight = 8;
+    const lights = [
+      { x: playerScreenX, y: playerScreenY, radius },
+      ...extraLights
+    ];
 
     graphics.fillStyle(0x020407, 0.9);
 
     for (let y = 0; y < height; y += bandHeight) {
       const bandCenterY = y + bandHeight / 2;
-      const dy = bandCenterY - playerScreenY;
+      const intervals: Array<{ left: number; right: number }> = [];
 
-      if (Math.abs(dy) >= radius) {
+      lights.forEach((light) => {
+        const dy = bandCenterY - light.y;
+
+        if (Math.abs(dy) >= light.radius) {
+          return;
+        }
+
+        const halfWidth = Math.sqrt(light.radius * light.radius - dy * dy);
+        intervals.push({
+          left: Phaser.Math.Clamp(light.x - halfWidth, 0, width),
+          right: Phaser.Math.Clamp(light.x + halfWidth, 0, width)
+        });
+      });
+
+      if (intervals.length === 0) {
         graphics.fillRect(0, y, width, bandHeight + 1);
         continue;
       }
 
-      const halfWidth = Math.sqrt(radius * radius - dy * dy);
-      const left = Phaser.Math.Clamp(playerScreenX - halfWidth, 0, width);
-      const right = Phaser.Math.Clamp(playerScreenX + halfWidth, 0, width);
+      intervals.sort((a, b) => a.left - b.left);
+      let cursor = 0;
+      let mergedRight = intervals[0].right;
 
-      graphics.fillRect(0, y, left, bandHeight + 1);
-      graphics.fillRect(right, y, Math.max(0, width - right), bandHeight + 1);
+      intervals.forEach((interval, index) => {
+        if (index === 0) {
+          if (interval.left > cursor) {
+            graphics.fillRect(cursor, y, interval.left - cursor, bandHeight + 1);
+          }
+          return;
+        }
+
+        if (interval.left > mergedRight) {
+          graphics.fillRect(mergedRight, y, interval.left - mergedRight, bandHeight + 1);
+          mergedRight = interval.right;
+          return;
+        }
+
+        mergedRight = Math.max(mergedRight, interval.right);
+      });
+
+      if (mergedRight < width) {
+        graphics.fillRect(mergedRight, y, width - mergedRight, bandHeight + 1);
+      }
     }
 
     graphics.lineStyle(18, 0x020407, 0.28);
     graphics.strokeCircle(playerScreenX, playerScreenY, radius + 10);
     graphics.lineStyle(2, 0xfff3bf, 0.16);
     graphics.strokeCircle(playerScreenX, playerScreenY, radius);
+    this.drawLightStickGlows(graphics, extraLights);
     this.drawScreenVignette(graphics, width, height, 0.74);
   }
 
@@ -2625,7 +2722,7 @@ export class WulandScene extends Phaser.Scene {
         y: origin.y + directionVector.y * length * t
       };
       const layerHalfWidth = farHalfWidth * (0.18 + t * 0.82);
-      const alpha = 0.018 + (1 - t) * 0.034;
+      const alpha = (0.018 + (1 - t) * 0.034) * 0.5;
 
       graphics.fillStyle(0xfff3bf, alpha);
       graphics.fillTriangle(
@@ -2638,7 +2735,7 @@ export class WulandScene extends Phaser.Scene {
       );
     }
 
-    graphics.fillStyle(0xfff8dc, 0.085);
+    graphics.fillStyle(0xfff8dc, 0.042);
     graphics.fillTriangle(
       origin.x,
       origin.y,
@@ -2647,10 +2744,10 @@ export class WulandScene extends Phaser.Scene {
       end.x - perpendicular.x * farHalfWidth * 0.46,
       end.y - perpendicular.y * farHalfWidth * 0.46
     );
-    graphics.lineStyle(2, 0xfff3bf, 0.12);
+    graphics.lineStyle(2, 0xfff3bf, 0.06);
     graphics.lineBetween(origin.x, origin.y, end.x + perpendicular.x * farHalfWidth, end.y + perpendicular.y * farHalfWidth);
     graphics.lineBetween(origin.x, origin.y, end.x - perpendicular.x * farHalfWidth, end.y - perpendicular.y * farHalfWidth);
-    graphics.fillStyle(0xfff3bf, 0.12);
+    graphics.fillStyle(0xfff3bf, 0.06);
     graphics.fillCircle(origin.x, origin.y, 54);
   }
 
@@ -3548,11 +3645,13 @@ const snapshotDroppedItem = (item: DroppedItemNetworkState): DroppedItemNetworkS
   itemDefinitionId: item.itemDefinitionId,
   itemInstanceId: item.itemInstanceId,
   quantity: item.quantity,
+  chargeRemainingMs: item.chargeRemainingMs ?? 0,
   mapId: item.mapId ?? WULAND_MAP_ID,
   x: item.x,
   y: item.y,
   droppedByPlayerId: item.droppedByPlayerId,
-  droppedAt: item.droppedAt
+  droppedAt: item.droppedAt,
+  expiresAt: item.expiresAt ?? 0
 });
 
 const snapshotNpc = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => ({
@@ -3580,7 +3679,8 @@ const createEmptyClientInventory = (): InventorySlotState[] =>
     slotIndex,
     itemDefinitionId: "",
     itemInstanceId: "",
-    quantity: 0
+    quantity: 0,
+    chargeRemainingMs: 0
   }));
 
 const snapshotInventory = (inventory: PlayerNetworkState["inventory"]): InventorySlotState[] => {
@@ -3592,7 +3692,8 @@ const snapshotInventory = (inventory: PlayerNetworkState["inventory"]): Inventor
         slotIndex: slot.slotIndex,
         itemDefinitionId: slot.itemDefinitionId,
         itemInstanceId: slot.itemInstanceId,
-        quantity: slot.quantity
+        quantity: slot.quantity,
+        chargeRemainingMs: slot.chargeRemainingMs ?? 0
       };
     }
   });

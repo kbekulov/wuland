@@ -93,7 +93,9 @@ The overworld is the main WULAND village. The five buildings now have separate i
 - BusyBeet: busy workspace with desks, notice board, and productivity props.
 - Din Break: relaxed break room with couches, vending machine, and coffee table.
 
-The Cave is a separate dark location reached through the cave mouth at the top of the overworld. It now has multiple connected dungeon levels: The Cave, Lower Tunnels, and Deep Hollow. Each level is a long, winding set of strange tunnels and dead-end passages rather than a single room. Inside, visibility is deliberately tiny with a heavy dark vignette until the player buys a Flashlight from the Odd Merchant and selects that Flashlight in the hotbar. Selecting the Flashlight keeps a spooky vignette and shows a soft gradient beam in the player's facing direction, while the area behind the player is treated as real darkness. Selecting a weapon, cake, or any other item puts the cave back into low-visibility mode so the game teaches that the active hotbar item matters.
+The Cave is a separate dark location reached through the cave mouth at the top of the overworld. It now has multiple connected dungeon levels: The Cave, Lower Tunnels, and Deep Hollow. Each level is a long, winding set of strange tunnels and dead-end passages rather than a single room. Inside, visibility is deliberately tiny with a heavy dark vignette until the player buys a Flashlight from the Odd Merchant and selects that Flashlight in the hotbar. Selecting the Flashlight keeps a spooky vignette and shows a softer transparent beam in the player's facing direction, while the area behind the player remains dark. Selecting a weapon, cake, or any other item puts the cave back into low-visibility mode so the game teaches that the active hotbar item matters.
+
+Flashlights are limited prototype exploration items: every Flashlight has 60 seconds of charge and only drains while selected in a cave. The hotbar shows a small charge bar on each Flashlight. Players can buy multiple Flashlights, and each one has its own charge. The Odd Merchant also sells Light Sticks. Drop a Light Stick in a cave to activate it; it illuminates a small nearby area for 2 minutes and then disappears.
 
 Ambient NPCs, cats, and dogs do not enter any cave level. The cave uses cave-only Zombies instead; they are human-shaped enemy sprites, wander through the dungeon when not chasing players, and actively pursue players in the same cave level. Each zombie bite deals 20% of the player's max HP; a player defeated by zombies respawns safely back in WULAND near the Odd Merchant. Zombies always respawn back at their cave spawn points.
 
@@ -143,6 +145,7 @@ Weapons:
 Exploration items:
 
 - Flashlight: sold by the Odd Merchant. Select it in The Cave to light the area; it only works while it is the selected hotbar item.
+- Light Stick: sold by the Odd Merchant. Drop it in The Cave to create a temporary pool of light for 2 minutes.
 
 Item icons appear in the hotbar, merchant shop, dropped world items, and near a player when they select an item. Current item icons and pet sprites use CC0 assets from Kenney and OpenGameArt. Touch control icons use soft Lucide line icons. Credits live in `CREDITS.md` and `client/public/assets/CREDITS.md`.
 
@@ -163,6 +166,7 @@ The merchant sells:
 - Cheese Cake: 1,800 coins
 - Mystery Cake: 2,500 coins
 - Flashlight: 3,500 coins
+- Light Stick: 900 coins
 
 Buying is server-authoritative: click `Buy`, the server validates the item, money, and inventory space, subtracts the price, and adds the item to the authoritative hotbar. The shop now shows direct purchase feedback from the server, such as `Bought Sword`, `Inventory full`, or `Shop is too far away`. If the inventory is full, the purchase is blocked.
 

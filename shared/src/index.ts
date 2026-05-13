@@ -97,8 +97,12 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 21;
+export const WULAND_PROTOCOL_VERSION = 22;
 export const FLASHLIGHT_ITEM_ID = "flashlight";
+export const FLASHLIGHT_MAX_CHARGE_MS = 60_000;
+export const LIGHT_STICK_ITEM_ID = "light-stick";
+export const LIGHT_STICK_DURATION_MS = 120_000;
+export const LIGHT_STICK_RADIUS = 150;
 export const PLAYER_STARTING_MONEY = 999_999;
 
 export const GENDERS = ["male", "female"] as const;
@@ -1036,7 +1040,8 @@ export const ITEM_DEFINITION_IDS = [
   "honey-cake",
   "cheese-cake",
   "mystery-cake",
-  "flashlight"
+  "flashlight",
+  "light-stick"
 ] as const;
 export type ItemDefinitionId = (typeof ITEM_DEFINITION_IDS)[number];
 export type ItemType = "weapon" | "consumable" | "misc";
@@ -1185,9 +1190,19 @@ export const ITEM_DEFINITIONS: Record<ItemDefinitionId, ItemDefinition> = {
     itemType: "misc",
     iconText: "LGT",
     iconAsset: "/assets/items/flashlight.png",
-    description: "Select it in your hotbar to light dark places like The Cave.",
+    description: "Select it in your hotbar to light dark places like The Cave. Each one lasts 60 seconds while active.",
     stackable: false,
     maxStack: 1
+  },
+  "light-stick": {
+    itemDefinitionId: "light-stick",
+    displayName: "Light Stick",
+    itemType: "misc",
+    iconText: "LST",
+    iconAsset: "/assets/items/light-stick.svg",
+    description: "Drop it in a dark place to create a small light for 2 minutes.",
+    stackable: true,
+    maxStack: 9
   }
 } as const;
 
@@ -1233,7 +1248,8 @@ export const WULAND_MERCHANT_STOCK: MerchantStockItem[] = [
   { itemDefinitionId: "honey-cake", price: 2000, priceLabel: "2,000 WULAND coins" },
   { itemDefinitionId: "cheese-cake", price: 1800, priceLabel: "1,800 WULAND coins" },
   { itemDefinitionId: "mystery-cake", price: 2500, priceLabel: "2,500 WULAND coins" },
-  { itemDefinitionId: "flashlight", price: 3500, priceLabel: "3,500 WULAND coins" }
+  { itemDefinitionId: "flashlight", price: 3500, priceLabel: "3,500 WULAND coins" },
+  { itemDefinitionId: "light-stick", price: 900, priceLabel: "900 WULAND coins" }
 ] as const;
 
 export const AMBIENT_NPC_TYPES = [
@@ -1525,6 +1541,7 @@ export interface InventorySlotState {
   itemDefinitionId: ItemDefinitionId | "";
   itemInstanceId: string;
   quantity: number;
+  chargeRemainingMs?: number;
 }
 
 export interface DroppedItemNetworkState {
@@ -1532,11 +1549,13 @@ export interface DroppedItemNetworkState {
   itemDefinitionId: ItemDefinitionId;
   itemInstanceId: string;
   quantity: number;
+  chargeRemainingMs?: number;
   mapId: WulandMapId;
   x: number;
   y: number;
   droppedByPlayerId: string;
   droppedAt: string;
+  expiresAt?: number;
 }
 
 export interface HotbarSelectRequest {
@@ -1789,6 +1808,8 @@ export const isInventorySlotState = (value: unknown): value is InventorySlotStat
     typeof value.itemInstanceId === "string" &&
     isFiniteNumber(value.quantity) &&
     value.quantity >= 0 &&
+    (value.chargeRemainingMs === undefined ||
+      (isFiniteNumber(value.chargeRemainingMs) && value.chargeRemainingMs >= 0)) &&
     (!hasItem || (value.itemInstanceId.trim().length > 0 && value.quantity > 0))
   );
 };
@@ -1798,8 +1819,12 @@ export const createEmptyInventory = (): InventorySlotState[] =>
     slotIndex,
     itemDefinitionId: "",
     itemInstanceId: "",
-    quantity: 0
+    quantity: 0,
+    chargeRemainingMs: 0
   }));
+
+export const defaultItemChargeMs = (itemDefinitionId: ItemDefinitionId | ""): number =>
+  itemDefinitionId === FLASHLIGHT_ITEM_ID ? FLASHLIGHT_MAX_CHARGE_MS : 0;
 
 export const createItemInstanceId = (
   itemDefinitionId: ItemDefinitionId,
@@ -1812,19 +1837,22 @@ export const createStarterInventory = (seedPrefix = "starter"): InventorySlotSta
     slotIndex: 0,
     itemDefinitionId: "rock",
     itemInstanceId: createItemInstanceId("rock", `${seedPrefix}-rock`),
-    quantity: 1
+    quantity: 1,
+    chargeRemainingMs: 0
   };
   inventory[1] = {
     slotIndex: 1,
     itemDefinitionId: "sword",
     itemInstanceId: createItemInstanceId("sword", `${seedPrefix}-sword`),
-    quantity: 1
+    quantity: 1,
+    chargeRemainingMs: 0
   };
   inventory[2] = {
     slotIndex: 2,
     itemDefinitionId: "magic-wand",
     itemInstanceId: createItemInstanceId("magic-wand", `${seedPrefix}-wand`),
-    quantity: 1
+    quantity: 1,
+    chargeRemainingMs: 0
   };
   return inventory;
 };
@@ -1847,7 +1875,16 @@ export const normalizeInventory = (
       slotIndex: slot.slotIndex,
       itemDefinitionId: definition ? slot.itemDefinitionId : "",
       itemInstanceId: definition ? slot.itemInstanceId : "",
-      quantity: definition ? Math.min(Math.max(1, Math.floor(slot.quantity)), definition.maxStack) : 0
+      quantity: definition ? Math.min(Math.max(1, Math.floor(slot.quantity)), definition.maxStack) : 0,
+      chargeRemainingMs: definition
+        ? Math.min(
+            defaultItemChargeMs(slot.itemDefinitionId),
+            Math.max(
+              0,
+              Math.floor(slot.chargeRemainingMs ?? defaultItemChargeMs(slot.itemDefinitionId))
+            )
+          )
+        : 0
     };
   });
 
@@ -1934,10 +1971,13 @@ export const isDroppedItemNetworkState = (value: unknown): value is DroppedItemN
   isNonEmptyString(value.itemInstanceId) &&
   isFiniteNumber(value.quantity) &&
   value.quantity > 0 &&
+  (value.chargeRemainingMs === undefined ||
+    (isFiniteNumber(value.chargeRemainingMs) && value.chargeRemainingMs >= 0)) &&
   (isMapId(value.mapId) || value.mapId === LEGACY_WULAND_MAP_ID) &&
   isValidMapPosition({ x: value.x, y: value.y }, normalizeMapId(value.mapId)) &&
   typeof value.droppedByPlayerId === "string" &&
-  isNonEmptyString(value.droppedAt);
+  isNonEmptyString(value.droppedAt) &&
+  (value.expiresAt === undefined || (isFiniteNumber(value.expiresAt) && value.expiresAt >= 0));
 
 export const isAmbientNpcNetworkState = (value: unknown): value is AmbientNpcNetworkState =>
   isRecord(value) &&

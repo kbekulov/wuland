@@ -14,6 +14,7 @@
 | Cheese Cake | Pixel Platformer Food Expansion, `Tiles/tile_0094.png` | Kenney | CC0 1.0 | https://kenney.nl/assets/pixel-platformer-food-expansion | Fit to WULAND 48x48 item icon canvas. |
 | Mystery Cake | Pixel Platformer Food Expansion, `Tiles/tile_0014.png` | Kenney | CC0 1.0 | https://kenney.nl/assets/pixel-platformer-food-expansion | Fit to WULAND 48x48 item icon canvas. |
 | Flashlight | Original WULAND placeholder pixel icon | WULAND/Codex generated | Project-owned placeholder | local asset | 48x48 generated icon for cave visibility gameplay. |
+| Light Stick | Original WULAND SVG placeholder icon | WULAND/Codex generated | Project-owned placeholder | local asset | Simple generated icon for dropped cave lighting gameplay. |
 
 ## UI Icons
 

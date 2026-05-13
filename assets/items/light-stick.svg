@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Light stick icon">
+  <rect width="48" height="48" rx="6" fill="#243033"/>
+  <circle cx="24" cy="24" r="18" fill="#9dff8f" opacity=".18"/>
+  <g transform="rotate(-26 24 24)">
+    <rect x="13" y="20" width="22" height="8" rx="4" fill="#d9ff99"/>
+    <rect x="15" y="22" width="18" height="4" rx="2" fill="#7cf58c"/>
+    <rect x="10" y="20" width="5" height="8" rx="2" fill="#3f5260"/>
+    <rect x="33" y="20" width="5" height="8" rx="2" fill="#3f5260"/>
+    <path d="M17 19h14" stroke="#f8ffe7" stroke-width="2" stroke-linecap="round" opacity=".75"/>
+  </g>
+</svg>

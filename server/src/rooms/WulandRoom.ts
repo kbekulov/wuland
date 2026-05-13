@@ -8,8 +8,12 @@ import {
   AMBIENT_NPC_MAX_HP,
   AMBIENT_NPC_RESPAWN_MS,
   ENEMY_DEFINITIONS,
+  FLASHLIGHT_ITEM_ID,
+  FLASHLIGHT_MAX_CHARGE_MS,
   HOTBAR_SLOT_COUNT,
   ITEM_DEFINITIONS,
+  LIGHT_STICK_DURATION_MS,
+  LIGHT_STICK_ITEM_ID,
   NETWORK_TICK_RATE,
   PLAYER_MAX_HP,
   PLAYER_MOVE_SPEED,
@@ -29,6 +33,7 @@ import {
   clampWorldPosition,
   collidesWithWorld,
   createItemInstanceId,
+  defaultItemChargeMs,
   getMapCollisionRects,
   getMapDefinition,
   isBuyItemRequest,
@@ -117,6 +122,7 @@ const ENEMY_WANDER_STUCK_REFRESH_MS = 1200;
 const ZOMBIE_PURSUIT_RANGE = 680;
 const PET_REACTION_DURATION_MS = 2600;
 const PET_BITE_DAMAGE = 4;
+const FLASHLIGHT_SAVE_INTERVAL_MS = 5000;
 const FORCE_DELETED_CLOSE_CODE = 4008;
 const PURCHASE_LOG_PREFIX = "[WULAND purchase]";
 
@@ -132,6 +138,7 @@ export class WulandInventorySlotSchema extends Schema {
   @type("string") itemDefinitionId = "";
   @type("string") itemInstanceId = "";
   @type("number") quantity = 0;
+  @type("number") chargeRemainingMs = 0;
 }
 
 export class WulandPlayerSchema extends Schema {
@@ -194,11 +201,13 @@ export class WulandDroppedItemSchema extends Schema {
   @type("string") itemDefinitionId = "";
   @type("string") itemInstanceId = "";
   @type("number") quantity = 1;
+  @type("number") chargeRemainingMs = 0;
   @type("string") mapId: WulandMapId = WULAND_MAP_ID;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("string") droppedByPlayerId = "";
   @type("string") droppedAt = "";
+  @type("number") expiresAt = 0;
 }
 
 export class WulandNpcSchema extends Schema {
@@ -259,6 +268,7 @@ export class WulandRoom extends Room<WulandRoomState> {
   private readonly npcTargets = new Map<string, NpcTravelTarget>();
   private readonly npcNextSpeechAt = new Map<string, number>();
   private readonly npcLastSavedAt = new Map<string, number>();
+  private readonly lastFlashlightSavedAt = new Map<string, number>();
   private readonly lastChatAt = new Map<string, number>();
   private enemyAiPaused = false;
   private godModeEnabled = false;
@@ -289,6 +299,11 @@ export class WulandRoom extends Room<WulandRoomState> {
       });
     });
     this.playerStore.allDroppedItems().forEach((item) => {
+      if (isExpiredLightStickRecord(item, Date.now())) {
+        this.playerStore.removeDroppedItem(item.droppedItemId);
+        return;
+      }
+
       this.state.droppedItems.set(item.droppedItemId, droppedItemFromRecord(item));
     });
     this.spawnInitialNpcs();
@@ -617,6 +632,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.moveTargets.delete(playerId);
     this.lastBasicAttack.delete(playerId);
     this.playerRespawnOverrides.delete(playerId);
+    this.lastFlashlightSavedAt.delete(playerId);
     this.updateCounts();
   }
 
@@ -666,10 +682,12 @@ export class WulandRoom extends Room<WulandRoomState> {
       player.lastSeenAt = timestamp;
 
       this.transitionThroughPortalIfNeeded(player);
+      this.updateSelectedFlashlight(player, deltaMs, now);
       this.persistIfNeeded(player);
       anyCountChange = true;
     });
 
+    this.updateDroppedItems(now);
     this.updateEnemies(deltaMs, now);
     this.updateNpcs(deltaMs, now);
 
@@ -754,6 +772,71 @@ export class WulandRoom extends Room<WulandRoomState> {
       moving: result.moving,
       direction: result.direction
     };
+  }
+
+  private updateSelectedFlashlight(player: WulandPlayerSchema, deltaMs: number, now: number): void {
+    if (!canFight(player) || !isCaveMapId(normalizeMapId(player.mapId))) {
+      return;
+    }
+
+    const slot = getInventorySlot(player, player.selectedHotbarSlot);
+
+    if (!slot || slot.itemDefinitionId !== FLASHLIGHT_ITEM_ID || slot.quantity <= 0) {
+      return;
+    }
+
+    const currentCharge = slot.chargeRemainingMs > 0
+      ? slot.chargeRemainingMs
+      : FLASHLIGHT_MAX_CHARGE_MS;
+    slot.chargeRemainingMs = Math.max(0, currentCharge - Math.max(1, Math.ceil(deltaMs)));
+
+    if (slot.chargeRemainingMs <= 0) {
+      clearSlot(slot);
+      this.lastFlashlightSavedAt.delete(player.playerId);
+      this.persistPlayer(player);
+      this.broadcastCombatEvent("notice", player.playerId, player.playerId, player.x, player.y, 0, "Flashlight battery is empty", "#ffd8a8");
+      return;
+    }
+
+    const previousSave = this.lastFlashlightSavedAt.get(player.playerId) ?? 0;
+
+    if (now - previousSave >= FLASHLIGHT_SAVE_INTERVAL_MS) {
+      this.lastFlashlightSavedAt.set(player.playerId, now);
+      this.persistPlayer(player);
+    }
+  }
+
+  private updateDroppedItems(now: number): void {
+    const expiredIds: string[] = [];
+
+    this.state.droppedItems.forEach((item) => {
+      if (
+        item.itemDefinitionId === LIGHT_STICK_ITEM_ID &&
+        item.expiresAt > 0 &&
+        now >= item.expiresAt
+      ) {
+        expiredIds.push(item.droppedItemId);
+      }
+    });
+
+    expiredIds.forEach((droppedItemId) => {
+      const item = this.state.droppedItems.get(droppedItemId);
+
+      if (!item) {
+        return;
+      }
+
+      const mapId = normalizeMapId(item.mapId);
+      const x = item.x;
+      const y = item.y;
+      this.state.droppedItems.delete(droppedItemId);
+      this.playerStore.removeDroppedItem(droppedItemId);
+      this.broadcastMapEvent("delete", LIGHT_STICK_ITEM_ID, droppedItemId, mapId, x, y, "Light stick faded", "#ffd8a8");
+    });
+
+    if (expiredIds.length > 0) {
+      this.updateCounts();
+    }
   }
 
   private spawnInitialEnemies(): void {
@@ -1515,11 +1598,13 @@ export class WulandRoom extends Room<WulandRoomState> {
         ? createItemInstanceId(item.itemDefinitionId, `${player.playerId}-drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
         : item.itemInstanceId,
       quantity: 1,
+      chargeRemainingMs: normalizeItemCharge(item.itemDefinitionId, item.chargeRemainingMs),
       mapId,
       x: dropPosition.x,
       y: dropPosition.y,
       droppedByPlayerId: player.playerId,
-      droppedAt: new Date().toISOString()
+      droppedAt: new Date().toISOString(),
+      expiresAt: item.itemDefinitionId === LIGHT_STICK_ITEM_ID ? Date.now() + LIGHT_STICK_DURATION_MS : 0
     });
 
     removeOneFromSlot(slot);
@@ -2565,11 +2650,30 @@ const normalizeMoney = (value: unknown): number =>
     ? Math.floor(value)
     : PLAYER_STARTING_MONEY;
 
+const normalizeItemCharge = (
+  itemDefinitionId: ItemDefinitionId | "",
+  value: unknown
+): number => {
+  const maxCharge = defaultItemChargeMs(itemDefinitionId);
+
+  if (maxCharge <= 0) {
+    return 0;
+  }
+
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.min(maxCharge, Math.floor(value))
+    : maxCharge;
+};
+
 const slotRecordFromSchema = (slot: WulandInventorySlotSchema): InventorySlotState => ({
   slotIndex: normalizeHotbarSlot(slot.slotIndex),
   itemDefinitionId: slot.itemDefinitionId as InventorySlotState["itemDefinitionId"],
   itemInstanceId: slot.itemInstanceId,
-  quantity: slot.quantity
+  quantity: slot.quantity,
+  chargeRemainingMs: normalizeItemCharge(
+    slot.itemDefinitionId as InventorySlotState["itemDefinitionId"],
+    slot.chargeRemainingMs
+  )
 });
 
 const applySlotRecord = (
@@ -2580,12 +2684,14 @@ const applySlotRecord = (
   slot.itemDefinitionId = record.itemDefinitionId;
   slot.itemInstanceId = record.itemInstanceId;
   slot.quantity = record.quantity;
+  slot.chargeRemainingMs = normalizeItemCharge(record.itemDefinitionId, record.chargeRemainingMs);
 };
 
 const clearSlot = (slot: WulandInventorySlotSchema): void => {
   slot.itemDefinitionId = "";
   slot.itemInstanceId = "";
   slot.quantity = 0;
+  slot.chargeRemainingMs = 0;
 };
 
 const removeOneFromSlot = (slot: WulandInventorySlotSchema): void => {
@@ -2650,6 +2756,7 @@ const createInventoryItem = (
     `${seedPrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   ),
   quantity: 1,
+  chargeRemainingMs: defaultItemChargeMs(itemDefinitionId),
   mapId: WULAND_MAP_ID,
   x: WULAND_MERCHANT.x,
   y: WULAND_MERCHANT.y,
@@ -2726,6 +2833,7 @@ const addItemToInventory = (
     emptySlot.itemDefinitionId = item.itemDefinitionId;
     emptySlot.itemInstanceId = item.itemInstanceId;
     emptySlot.quantity = Math.min(remaining, definition.maxStack);
+    emptySlot.chargeRemainingMs = normalizeItemCharge(item.itemDefinitionId, item.chargeRemainingMs);
     remaining -= emptySlot.quantity;
   }
 
@@ -2822,11 +2930,13 @@ const droppedItemFromRecord = (record: DroppedItemNetworkState): WulandDroppedIt
   droppedItem.itemDefinitionId = record.itemDefinitionId;
   droppedItem.itemInstanceId = record.itemInstanceId;
   droppedItem.quantity = record.quantity;
+  droppedItem.chargeRemainingMs = normalizeItemCharge(record.itemDefinitionId, record.chargeRemainingMs);
   droppedItem.mapId = normalizeMapId(record.mapId);
   droppedItem.x = record.x;
   droppedItem.y = record.y;
   droppedItem.droppedByPlayerId = record.droppedByPlayerId;
   droppedItem.droppedAt = record.droppedAt;
+  droppedItem.expiresAt = normalizeDroppedItemExpiresAt(record);
   return droppedItem;
 };
 
@@ -2835,12 +2945,34 @@ const recordFromDroppedItem = (item: WulandDroppedItemSchema): DroppedItemNetwor
   itemDefinitionId: item.itemDefinitionId as ItemDefinitionId,
   itemInstanceId: item.itemInstanceId,
   quantity: item.quantity,
+  chargeRemainingMs: normalizeItemCharge(item.itemDefinitionId as ItemDefinitionId, item.chargeRemainingMs),
   mapId: normalizeMapId(item.mapId),
   x: item.x,
   y: item.y,
   droppedByPlayerId: item.droppedByPlayerId,
-  droppedAt: item.droppedAt
+  droppedAt: item.droppedAt,
+  expiresAt: item.expiresAt
 });
+
+const normalizeDroppedItemExpiresAt = (item: DroppedItemNetworkState): number => {
+  if (item.itemDefinitionId !== LIGHT_STICK_ITEM_ID) {
+    return 0;
+  }
+
+  if (typeof item.expiresAt === "number" && Number.isFinite(item.expiresAt) && item.expiresAt > 0) {
+    return Math.floor(item.expiresAt);
+  }
+
+  const droppedAtMs = Date.parse(item.droppedAt);
+  return Number.isFinite(droppedAtMs)
+    ? droppedAtMs + LIGHT_STICK_DURATION_MS
+    : Date.now() + LIGHT_STICK_DURATION_MS;
+};
+
+const isExpiredLightStickRecord = (item: DroppedItemNetworkState, now: number): boolean =>
+  item.itemDefinitionId === LIGHT_STICK_ITEM_ID &&
+  normalizeDroppedItemExpiresAt(item) > 0 &&
+  now >= normalizeDroppedItemExpiresAt(item);
 
 const colorForItem = (itemDefinition: ItemDefinition): string => {
   if (itemDefinition.itemDefinitionId === "sword") {

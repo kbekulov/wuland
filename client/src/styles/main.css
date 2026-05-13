@@ -935,6 +935,25 @@ label span,
   color: #172224;
 }
 
+.hotbar-charge {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+
+.hotbar-charge i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #facc15, #fff3bf);
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.48);
+}
+
 .status-dot {
   width: 10px;
   height: 10px;

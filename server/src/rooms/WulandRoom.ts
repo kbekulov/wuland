@@ -114,12 +114,14 @@ const NPC_MAP_CHANGE_CHANCE = 0.42;
 const ENEMY_WANDER_TARGET_REACHED_DISTANCE = 24;
 const ENEMY_WANDER_TARGET_REFRESH_MS = 12000;
 const ENEMY_WANDER_STUCK_REFRESH_MS = 1200;
+const ZOMBIE_PURSUIT_RANGE = 1200;
 const PET_REACTION_DURATION_MS = 2600;
 const PET_BITE_DAMAGE = 4;
 const FORCE_DELETED_CLOSE_CODE = 4008;
 const PURCHASE_LOG_PREFIX = "[WULAND purchase]";
 
 type NpcTravelTarget = WorldPosition & { mapId: WulandMapId };
+type PlayerRespawnOverride = { mapId: WulandMapId; position: WorldPosition };
 type WeaponTarget =
   | { kind: "enemy"; entity: WulandEnemySchema }
   | { kind: "npc"; entity: WulandNpcSchema }
@@ -253,6 +255,7 @@ export class WulandRoom extends Room<WulandRoomState> {
   private readonly enemyContactTimes = new Map<string, number>();
   private readonly enemyWanderTargets = new Map<string, WorldPosition>();
   private readonly enemyWanderTargetSetAt = new Map<string, number>();
+  private readonly playerRespawnOverrides = new Map<string, PlayerRespawnOverride>();
   private readonly npcTargets = new Map<string, NpcTravelTarget>();
   private readonly npcNextSpeechAt = new Map<string, number>();
   private readonly npcLastSavedAt = new Map<string, number>();
@@ -613,6 +616,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.inputs.delete(playerId);
     this.moveTargets.delete(playerId);
     this.lastBasicAttack.delete(playerId);
+    this.playerRespawnOverrides.delete(playerId);
     this.updateCounts();
   }
 
@@ -629,8 +633,10 @@ export class WulandRoom extends Room<WulandRoomState> {
         player.moving = false;
 
         if (player.respawnAt > 0 && now >= player.respawnAt) {
-          const mapId = normalizeMapId(player.mapId);
-          const respawn = randomWalkablePosition(mapId);
+          const respawnOverride = this.playerRespawnOverrides.get(player.playerId);
+          const mapId = respawnOverride?.mapId ?? normalizeMapId(player.mapId);
+          const respawn = respawnOverride?.position ?? randomWalkablePosition(mapId);
+          this.playerRespawnOverrides.delete(player.playerId);
           player.mapId = mapId;
           player.x = respawn.x;
           player.y = respawn.y;
@@ -1002,7 +1008,11 @@ export class WulandRoom extends Room<WulandRoomState> {
 
       const distanceToEnemy = distance(enemy, player);
 
-      if (distanceToEnemy > definition.aggroRange) {
+      const aggroRange = enemy.type === "zombie" && isCaveMapId(normalizeMapId(enemy.mapId))
+        ? Math.max(definition.aggroRange, ZOMBIE_PURSUIT_RANGE)
+        : definition.aggroRange;
+
+      if (distanceToEnemy > aggroRange) {
         return;
       }
 
@@ -1368,6 +1378,17 @@ export class WulandRoom extends Room<WulandRoomState> {
     player.defeated = true;
     player.moving = false;
     player.respawnAt = now + PLAYER_RESPAWN_MS;
+    const sourceEnemy = this.state.enemies.get(sourceId);
+
+    if (sourceEnemy?.type === "zombie") {
+      this.playerRespawnOverrides.set(player.playerId, {
+        mapId: WULAND_MAP_ID,
+        position: respawnNearMerchant()
+      });
+    } else {
+      this.playerRespawnOverrides.delete(player.playerId);
+    }
+
     this.inputs.set(player.playerId, { ...ZERO_INPUT });
     this.moveTargets.delete(player.playerId);
     this.persistPlayer(player);
@@ -1941,6 +1962,16 @@ export class WulandRoom extends Room<WulandRoomState> {
 
   private respawnEnemy(enemy: WulandEnemySchema): void {
     const definition = ENEMY_DEFINITIONS[enemy.type as EnemyType];
+    const spawn = enemy.type === "zombie"
+      ? WULAND_ENEMY_SPAWNS.find((candidate) => candidate.id === enemy.enemyId)
+      : undefined;
+
+    if (spawn && isCaveMapId(normalizeMapId(spawn.mapId ?? WULAND_MAP_ID))) {
+      enemy.mapId = normalizeMapId(spawn.mapId);
+      enemy.spawnX = spawn.x;
+      enemy.spawnY = spawn.y;
+    }
+
     enemy.x = enemy.spawnX;
     enemy.y = enemy.spawnY;
     enemy.hp = definition.maxHp;
@@ -2318,6 +2349,27 @@ const randomWalkablePosition = (mapId: WulandMapId): WorldPosition => {
   }
 
   return clampMapPosition(map.defaultSpawn, mapId);
+};
+
+const respawnNearMerchant = (): WorldPosition => {
+  const collisions = getMapCollisionRects(WULAND_MAP_ID);
+  const candidates: WorldPosition[] = [
+    { x: WULAND_MERCHANT.x + 88, y: WULAND_MERCHANT.y + 42 },
+    { x: WULAND_MERCHANT.x - 88, y: WULAND_MERCHANT.y + 42 },
+    { x: WULAND_MERCHANT.x, y: WULAND_MERCHANT.y + 120 },
+    { x: WULAND_MERCHANT.x + 118, y: WULAND_MERCHANT.y - 36 },
+    { x: WULAND_MERCHANT.x - 118, y: WULAND_MERCHANT.y - 36 }
+  ];
+
+  for (const candidate of candidates) {
+    const position = clampMapPosition(candidate, WULAND_MAP_ID);
+
+    if (!collidesWithWorld(position, collisions)) {
+      return position;
+    }
+  }
+
+  return clampMapPosition(WULAND_WORLD.defaultSpawn, WULAND_MAP_ID);
 };
 
 const randomNpcTarget = (npc: WulandNpcSchema): NpcTravelTarget => {

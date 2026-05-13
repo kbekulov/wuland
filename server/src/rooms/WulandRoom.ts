@@ -33,6 +33,7 @@ import {
   getMapDefinition,
   isBuyItemRequest,
   isCakeItemDefinitionId,
+  isCaveMapId,
   isChatRequest,
   isClearChatRequest,
   isCombatRequest,
@@ -110,6 +111,9 @@ const NPC_SPEECH_MIN_MS = 7000;
 const NPC_SPEECH_MAX_MS = 13500;
 const NPC_SPEECH_DURATION_MS = 3600;
 const NPC_MAP_CHANGE_CHANCE = 0.42;
+const ENEMY_WANDER_TARGET_REACHED_DISTANCE = 24;
+const ENEMY_WANDER_TARGET_REFRESH_MS = 12000;
+const ENEMY_WANDER_STUCK_REFRESH_MS = 1200;
 const PET_REACTION_DURATION_MS = 2600;
 const PET_BITE_DAMAGE = 4;
 const FORCE_DELETED_CLOSE_CODE = 4008;
@@ -247,6 +251,8 @@ export class WulandRoom extends Room<WulandRoomState> {
   private readonly lastPersistedPosition = new Map<string, { x: number; y: number; at: number }>();
   private readonly lastBasicAttack = new Map<string, number>();
   private readonly enemyContactTimes = new Map<string, number>();
+  private readonly enemyWanderTargets = new Map<string, WorldPosition>();
+  private readonly enemyWanderTargetSetAt = new Map<string, number>();
   private readonly npcTargets = new Map<string, NpcTravelTarget>();
   private readonly npcNextSpeechAt = new Map<string, number>();
   private readonly npcLastSavedAt = new Map<string, number>();
@@ -772,7 +778,7 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
-      if (normalizeMapId(npc.mapId) === "the_cave") {
+      if (isCaveMapId(normalizeMapId(npc.mapId))) {
         const mapId = randomAmbientNpcMapId(normalizeMapId(npc.mapId));
         const arrival = randomWalkablePosition(mapId);
         npc.mapId = mapId;
@@ -925,18 +931,57 @@ export class WulandRoom extends Room<WulandRoomState> {
       enemy.targetPlayerId = target?.playerId ?? "";
 
       if (target) {
+        this.enemyWanderTargets.delete(enemy.enemyId);
+        this.enemyWanderTargetSetAt.delete(enemy.enemyId);
         this.moveEnemyToward(enemy, { x: target.x, y: target.y }, definition.speed, deltaMs);
         this.applyContactDamage(enemy, target, definition, now);
         return;
       }
 
-      const phase = (now / 1000 + enemy.enemyId.length * 0.47) % (Math.PI * 2);
-      const wanderTarget = {
-        x: enemy.spawnX + Math.cos(phase) * 42,
-        y: enemy.spawnY + Math.sin(phase * 0.8) * 34
-      };
-      this.moveEnemyToward(enemy, wanderTarget, definition.speed * 0.35, deltaMs);
+      this.updateEnemyWander(enemy, definition, deltaMs, now);
     });
+  }
+
+  private updateEnemyWander(
+    enemy: WulandEnemySchema,
+    definition: { speed: number },
+    deltaMs: number,
+    now: number
+  ): void {
+    const mapId = normalizeMapId(enemy.mapId);
+
+    if (enemy.type === "zombie" && isCaveMapId(mapId)) {
+      let target = this.enemyWanderTargets.get(enemy.enemyId);
+      const targetSetAt = this.enemyWanderTargetSetAt.get(enemy.enemyId) ?? 0;
+      const targetAge = now - targetSetAt;
+
+      if (
+        !target ||
+        distance(enemy, target) <= ENEMY_WANDER_TARGET_REACHED_DISTANCE ||
+        targetAge > ENEMY_WANDER_TARGET_REFRESH_MS
+      ) {
+        target = randomWalkablePosition(mapId);
+        this.enemyWanderTargets.set(enemy.enemyId, target);
+        this.enemyWanderTargetSetAt.set(enemy.enemyId, now);
+      }
+
+      const before = { x: enemy.x, y: enemy.y };
+      this.moveEnemyToward(enemy, target, definition.speed * 0.52, deltaMs);
+
+      if (distance(before, enemy) < 0.6 && targetAge > ENEMY_WANDER_STUCK_REFRESH_MS) {
+        this.enemyWanderTargets.delete(enemy.enemyId);
+        this.enemyWanderTargetSetAt.delete(enemy.enemyId);
+      }
+
+      return;
+    }
+
+    const phase = (now / 1000 + enemy.enemyId.length * 0.47) % (Math.PI * 2);
+    const wanderTarget = {
+      x: enemy.spawnX + Math.cos(phase) * 42,
+      y: enemy.spawnY + Math.sin(phase * 0.8) * 34
+    };
+    this.moveEnemyToward(enemy, wanderTarget, definition.speed * 0.35, deltaMs);
   }
 
   private findEnemyTarget(
@@ -1262,6 +1307,8 @@ export class WulandRoom extends Room<WulandRoomState> {
     enemy.markedUntil = 0;
     enemy.weakenedUntil = 0;
     enemy.respawnAt = now + definition.respawnMs;
+    this.enemyWanderTargets.delete(enemy.enemyId);
+    this.enemyWanderTargetSetAt.delete(enemy.enemyId);
     this.broadcastCombatEvent("enemy-defeated", player.playerId, enemy.enemyId, enemy.x, enemy.y, 0, `${label} cleared`, "#91f2bd");
     this.updateCounts();
   }
@@ -1904,6 +1951,8 @@ export class WulandRoom extends Room<WulandRoomState> {
     enemy.markedUntil = 0;
     enemy.weakenedUntil = 0;
     enemy.respawnAt = 0;
+    this.enemyWanderTargets.delete(enemy.enemyId);
+    this.enemyWanderTargetSetAt.delete(enemy.enemyId);
     this.broadcastCombatEvent("respawn", enemy.enemyId, enemy.enemyId, enemy.x, enemy.y, 0, "respawn", "#91f2bd");
     this.updateCounts();
   }
@@ -2189,7 +2238,7 @@ const npcFromDefinition = (
 ): WulandNpcSchema => {
   const npc = new WulandNpcSchema();
   const persistedMapId = normalizeMapId(record?.mapId ?? definition.mapId);
-  const mapId = persistedMapId === "the_cave"
+  const mapId = isCaveMapId(persistedMapId)
     ? normalizeMapId(definition.mapId)
     : persistedMapId;
   const position = clampMapPosition(
@@ -2247,7 +2296,7 @@ const normalizeNpcHp = (value: unknown, fallback: number, allowZero = false): nu
     : fallback;
 
 const randomAmbientNpcMapId = (currentMapId: WulandMapId): WulandMapId => {
-  const allowedMaps = WULAND_MAP_IDS.filter((mapId) => mapId !== "the_cave");
+  const allowedMaps = WULAND_MAP_IDS.filter((mapId) => !isCaveMapId(mapId));
   const candidates = allowedMaps.filter((mapId) => mapId !== currentMapId);
   return randomChoice(candidates.length > 0 ? candidates : allowedMaps);
 };
@@ -2275,7 +2324,7 @@ const randomNpcTarget = (npc: WulandNpcSchema): NpcTravelTarget => {
   const currentMapId = normalizeMapId(npc.mapId);
   const mapId = Math.random() < NPC_MAP_CHANGE_CHANCE
     ? randomAmbientNpcMapId(currentMapId)
-    : currentMapId === "the_cave"
+    : isCaveMapId(currentMapId)
       ? randomAmbientNpcMapId(currentMapId)
       : currentMapId;
 

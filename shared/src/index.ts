@@ -97,7 +97,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 19;
+export const WULAND_PROTOCOL_VERSION = 20;
 export const FLASHLIGHT_ITEM_ID = "flashlight";
 export const PLAYER_STARTING_MONEY = 999_999;
 
@@ -121,10 +121,21 @@ export const WULAND_MAP_IDS = [
   "kitchen",
   "busybeet",
   "din_break",
-  "the_cave"
+  "the_cave",
+  "the_cave_depths",
+  "the_cave_abyss"
 ] as const;
 
 export type WulandMapId = (typeof WULAND_MAP_IDS)[number];
+
+export const CAVE_MAP_IDS = [
+  "the_cave",
+  "the_cave_depths",
+  "the_cave_abyss"
+] as const satisfies readonly WulandMapId[];
+
+export const isCaveMapId = (mapId: WulandMapId): boolean =>
+  CAVE_MAP_IDS.includes(mapId as (typeof CAVE_MAP_IDS)[number]);
 
 export const SKIN_TONES = [
   { id: "warm ivory", label: "Warm Ivory", color: "#f2c7a5" },
@@ -385,6 +396,22 @@ export const WULAND_MAPS: Record<WulandMapId, WulandMapDefinition> = {
     height: CAVE_WORLD.height,
     tileSize: CAVE_WORLD.tileSize,
     defaultSpawn: CAVE_WORLD.defaultSpawn
+  },
+  the_cave_depths: {
+    id: "the_cave_depths",
+    displayName: "The Cave: Lower Tunnels",
+    width: CAVE_WORLD.width,
+    height: CAVE_WORLD.height,
+    tileSize: CAVE_WORLD.tileSize,
+    defaultSpawn: CAVE_WORLD.defaultSpawn
+  },
+  the_cave_abyss: {
+    id: "the_cave_abyss",
+    displayName: "The Cave: Deep Hollow",
+    width: CAVE_WORLD.width,
+    height: CAVE_WORLD.height,
+    tileSize: CAVE_WORLD.tileSize,
+    defaultSpawn: CAVE_WORLD.defaultSpawn
   }
 };
 
@@ -575,7 +602,9 @@ export const INTERIOR_COLLISION_RECTS: Record<Exclude<WulandMapId, "overworld">,
     { id: "vending-machine", x: 760, y: 402, width: 72, height: 134 },
     { id: "snack-counter", x: 116, y: 492, width: 226, height: 56 }
   ],
-  the_cave: CAVE_COLLISION_RECTS
+  the_cave: CAVE_COLLISION_RECTS,
+  the_cave_depths: CAVE_COLLISION_RECTS,
+  the_cave_abyss: CAVE_COLLISION_RECTS
 };
 
 export const MAP_COLLISION_RECTS: Record<WulandMapId, CollisionRectangle[]> = {
@@ -689,6 +718,38 @@ export const WULAND_PORTALS: PortalDefinition[] = [
     sourceRect: { id: "exit-the-cave", x: 1220, y: 2112, width: 120, height: 88 },
     destination: { x: 800, y: 124 },
     label: "exit to WULAND"
+  },
+  {
+    id: "the-cave-to-depths",
+    fromMapId: "the_cave",
+    toMapId: "the_cave_depths",
+    sourceRect: { id: "stairs-the-cave-depths", x: 2160, y: 94, width: 150, height: 116 },
+    destination: CAVE_WORLD.defaultSpawn,
+    label: "descend to the Lower Tunnels"
+  },
+  {
+    id: "depths-to-the-cave",
+    fromMapId: "the_cave_depths",
+    toMapId: "the_cave",
+    sourceRect: { id: "stairs-depths-up", x: 1220, y: 2112, width: 120, height: 88 },
+    destination: { x: 2235, y: 230 },
+    label: "climb toward the cave mouth"
+  },
+  {
+    id: "depths-to-abyss",
+    fromMapId: "the_cave_depths",
+    toMapId: "the_cave_abyss",
+    sourceRect: { id: "stairs-depths-abyss", x: 2380, y: 1100, width: 132, height: 132 },
+    destination: CAVE_WORLD.defaultSpawn,
+    label: "descend to the Deep Hollow"
+  },
+  {
+    id: "abyss-to-depths",
+    fromMapId: "the_cave_abyss",
+    toMapId: "the_cave_depths",
+    sourceRect: { id: "stairs-abyss-up", x: 1220, y: 2112, width: 120, height: 88 },
+    destination: { x: 2440, y: 1180 },
+    label: "climb to the Lower Tunnels"
   }
 ];
 
@@ -942,7 +1003,25 @@ export const WULAND_ENEMY_SPAWNS: EnemySpawnDefinition[] = [
   { id: "cave-zombie-5", type: "zombie", mapId: "the_cave", x: 850, y: 1110, leashRadius: 260 },
   { id: "cave-zombie-6", type: "zombie", mapId: "the_cave", x: 390, y: 1520, leashRadius: 260 },
   { id: "cave-zombie-7", type: "zombie", mapId: "the_cave", x: 1700, y: 1380, leashRadius: 270 },
-  { id: "cave-zombie-8", type: "zombie", mapId: "the_cave", x: 2360, y: 1900, leashRadius: 260 }
+  { id: "cave-zombie-8", type: "zombie", mapId: "the_cave", x: 2360, y: 1900, leashRadius: 260 },
+  { id: "cave-depths-zombie-1", type: "zombie", mapId: "the_cave_depths", x: 1280, y: 1900, leashRadius: 320 },
+  { id: "cave-depths-zombie-2", type: "zombie", mapId: "the_cave_depths", x: 660, y: 1720, leashRadius: 320 },
+  { id: "cave-depths-zombie-3", type: "zombie", mapId: "the_cave_depths", x: 1750, y: 1880, leashRadius: 320 },
+  { id: "cave-depths-zombie-4", type: "zombie", mapId: "the_cave_depths", x: 2210, y: 560, leashRadius: 340 },
+  { id: "cave-depths-zombie-5", type: "zombie", mapId: "the_cave_depths", x: 820, y: 760, leashRadius: 320 },
+  { id: "cave-depths-zombie-6", type: "zombie", mapId: "the_cave_depths", x: 360, y: 1180, leashRadius: 320 },
+  { id: "cave-depths-zombie-7", type: "zombie", mapId: "the_cave_depths", x: 1710, y: 1320, leashRadius: 330 },
+  { id: "cave-depths-zombie-8", type: "zombie", mapId: "the_cave_depths", x: 2320, y: 1560, leashRadius: 320 },
+  { id: "cave-abyss-zombie-1", type: "zombie", mapId: "the_cave_abyss", x: 1280, y: 1900, leashRadius: 360 },
+  { id: "cave-abyss-zombie-2", type: "zombie", mapId: "the_cave_abyss", x: 460, y: 1840, leashRadius: 360 },
+  { id: "cave-abyss-zombie-3", type: "zombie", mapId: "the_cave_abyss", x: 880, y: 1400, leashRadius: 360 },
+  { id: "cave-abyss-zombie-4", type: "zombie", mapId: "the_cave_abyss", x: 1450, y: 1540, leashRadius: 360 },
+  { id: "cave-abyss-zombie-5", type: "zombie", mapId: "the_cave_abyss", x: 2180, y: 1810, leashRadius: 380 },
+  { id: "cave-abyss-zombie-6", type: "zombie", mapId: "the_cave_abyss", x: 2240, y: 620, leashRadius: 380 },
+  { id: "cave-abyss-zombie-7", type: "zombie", mapId: "the_cave_abyss", x: 740, y: 520, leashRadius: 360 },
+  { id: "cave-abyss-zombie-8", type: "zombie", mapId: "the_cave_abyss", x: 1820, y: 960, leashRadius: 360 },
+  { id: "cave-abyss-zombie-9", type: "zombie", mapId: "the_cave_abyss", x: 390, y: 1460, leashRadius: 360 },
+  { id: "cave-abyss-zombie-10", type: "zombie", mapId: "the_cave_abyss", x: 1500, y: 380, leashRadius: 360 }
 ];
 
 export const HOTBAR_SLOT_COUNT = 9;

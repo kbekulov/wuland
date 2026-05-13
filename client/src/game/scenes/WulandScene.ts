@@ -22,6 +22,7 @@ import {
   getMapDefinition,
   getMapDisplayName,
   isCakeItemDefinitionId,
+  isCaveMapId,
   isPetNpcType,
   portalAtPosition,
   portalsForMap,
@@ -107,6 +108,7 @@ interface EnemyAvatar {
   container: Phaser.GameObjects.Container;
   body: Phaser.GameObjects.Arc;
   accent: Phaser.GameObjects.Arc;
+  sprite?: Phaser.GameObjects.Sprite;
   selectionRing: Phaser.GameObjects.Arc;
   markLabel: Phaser.GameObjects.Text;
   nameLabel: Phaser.GameObjects.Text;
@@ -484,8 +486,8 @@ export class WulandScene extends Phaser.Scene {
       return;
     }
 
-    if (mapId === "the_cave") {
-      this.drawCave();
+    if (isCaveMapId(mapId)) {
+      this.drawCave(mapId);
       return;
     }
 
@@ -755,22 +757,23 @@ export class WulandScene extends Phaser.Scene {
     this.drawPortalMarkers(mapId);
   }
 
-  private drawCave(): void {
-    const map = WULAND_MAPS.the_cave;
+  private drawCave(mapId: WulandMapId): void {
+    const map = WULAND_MAPS[mapId];
+    const palette = cavePaletteForMap(mapId);
     const graphics = this.addWorld(this.add.graphics());
     graphics.setDepth(2);
-    graphics.fillStyle(0x10151c, 1);
+    graphics.fillStyle(palette.floorBase, 1);
     graphics.fillRect(0, 0, map.width, map.height);
 
     for (let y = 32; y < map.height - 32; y += 32) {
       for (let x = 32; x < map.width - 32; x += 32) {
         const wobble = ((x / 32) * 7 + (y / 32) * 11) % 5;
-        graphics.fillStyle(wobble === 0 ? 0x18222b : wobble === 3 ? 0x0c1118 : 0x121922, 1);
+        graphics.fillStyle(wobble === 0 ? palette.floorLight : wobble === 3 ? palette.floorDark : palette.floor, 1);
         graphics.fillRect(x, y, 32, 32);
       }
     }
 
-    graphics.fillStyle(0x05080c, 1);
+    graphics.fillStyle(palette.wallDark, 1);
     graphics.fillRect(0, 0, map.width, 32);
     graphics.fillRect(0, map.height - 32, 1180, 32);
     graphics.fillRect(1380, map.height - 32, map.width - 1380, 32);
@@ -778,14 +781,14 @@ export class WulandScene extends Phaser.Scene {
     graphics.fillRect(map.width - 32, 0, 32, map.height);
 
     CAVE_TUNNEL_COLLISION_RECTS.forEach((rect, index) => {
-      const shade = index % 3 === 0 ? 0x27323d : index % 3 === 1 ? 0x202a34 : 0x171f28;
+      const shade = index % 3 === 0 ? palette.wallLight : index % 3 === 1 ? palette.wall : palette.wallMid;
       graphics.fillStyle(shade, 1);
       graphics.fillRect(rect.x, rect.y, rect.width, rect.height);
       graphics.lineStyle(2, 0x080b10, 0.62);
       graphics.strokeRect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2);
 
       if (rect.width > 130 && rect.height > 70) {
-        graphics.fillStyle(0x111820, 0.34);
+        graphics.fillStyle(palette.wallDark, 0.34);
         graphics.fillEllipse(
           rect.x + rect.width * 0.35,
           rect.y + rect.height * 0.45,
@@ -803,9 +806,9 @@ export class WulandScene extends Phaser.Scene {
       { x: 440, y: 1460, r: 17 },
       { x: 2260, y: 1810, r: 22 }
     ].forEach((crystal) => {
-      graphics.fillStyle(0x35d0ba, 0.2);
+      graphics.fillStyle(palette.crystal, 0.2);
       graphics.fillCircle(crystal.x, crystal.y, crystal.r * 2.4);
-      graphics.fillStyle(0x6cf2df, 0.46);
+      graphics.fillStyle(palette.crystalLight, 0.46);
       graphics.fillTriangle(
         crystal.x,
         crystal.y - crystal.r,
@@ -822,16 +825,16 @@ export class WulandScene extends Phaser.Scene {
       { x: 1830, y: 338, w: 260, h: 128 },
       { x: 2140, y: 1260, w: 210, h: 106 }
     ].forEach((pool) => {
-      graphics.fillStyle(0x071d26, 0.78);
+      graphics.fillStyle(palette.pool, 0.78);
       graphics.fillEllipse(pool.x, pool.y, pool.w, pool.h);
-      graphics.lineStyle(2, 0x3da4a6, 0.24);
+      graphics.lineStyle(2, palette.crystal, 0.24);
       graphics.strokeEllipse(pool.x, pool.y, pool.w, pool.h);
     });
 
     this.addWorld(this.add
-      .text(1280, 2034, "The Cave", {
+      .text(1280, 2034, map.displayName, {
         fontFamily: "Georgia, serif",
-        fontSize: "32px",
+        fontSize: mapId === "the_cave" ? "32px" : "28px",
         color: "#d8f5e5",
         stroke: "#05080b",
         strokeThickness: 5
@@ -842,7 +845,8 @@ export class WulandScene extends Phaser.Scene {
       .rectangle(1280, 2156, 120, 48, 0x140b08, 1)
       .setStrokeStyle(3, 0x8f6b3f, 0.95)
       .setDepth(13));
-    this.drawPortalMarkers("the_cave");
+    this.drawCaveStairMarkers(mapId);
+    this.drawPortalMarkers(mapId);
     this.caveDarkness = this.addWorld(this.add.graphics().setScrollFactor(0).setDepth(146));
     this.caveNotice = this.addWorld(this.add
       .text(0, 0, "", {
@@ -857,6 +861,30 @@ export class WulandScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(147));
+  }
+
+  private drawCaveStairMarkers(mapId: WulandMapId): void {
+    portalsForMap(mapId)
+      .filter((portal) => isCaveMapId(portal.toMapId))
+      .forEach((portal) => {
+        const x = portal.sourceRect.x + portal.sourceRect.width / 2;
+        const y = portal.sourceRect.y + portal.sourceRect.height / 2;
+        this.addWorld(this.add
+          .ellipse(x, y, portal.sourceRect.width * 0.7, portal.sourceRect.height * 0.48, 0x030506, 0.9)
+          .setStrokeStyle(3, 0x6cf2df, 0.45)
+          .setDepth(12));
+        const label = portal.label.toLowerCase().includes("climb") ? "up" : "deeper";
+        this.addWorld(this.add
+          .text(x, y - portal.sourceRect.height * 0.58, label, {
+            fontFamily: "Arial, sans-serif",
+            fontSize: "13px",
+            color: "#d8f5e5",
+            backgroundColor: "rgba(7, 10, 13, 0.72)",
+            padding: { x: 6, y: 2 }
+          })
+          .setOrigin(0.5)
+          .setDepth(16));
+      });
   }
 
   private drawInteriorBase(
@@ -2094,14 +2122,23 @@ export class WulandScene extends Phaser.Scene {
     let avatar = this.enemyAvatars.get(enemy.enemyId);
 
     if (!avatar) {
-      const body = this.add.circle(0, 0, definition.radius, definition.color, 0.95);
+      const isZombie = enemy.type === "zombie";
+      const body = this.add
+        .circle(0, 0, definition.radius, definition.color, 0.95)
+        .setVisible(!isZombie);
       const accent = this.add.circle(
         definition.radius * 0.3,
         -definition.radius * 0.25,
         Math.max(5, definition.radius * 0.32),
         definition.accentColor,
         0.9
-      );
+      ).setVisible(!isZombie);
+      const sprite = isZombie
+        ? this.add
+            .sprite(0, 2, zombieTextureKey(this))
+            .setOrigin(0.5, 0.74)
+            .setScale(1.08)
+        : undefined;
       const selectionRing = this.add
         .circle(0, 0, definition.radius + 7, 0xffffff, 0)
         .setStrokeStyle(3, 0xfff3bf, 1)
@@ -2131,6 +2168,7 @@ export class WulandScene extends Phaser.Scene {
         selectionRing,
         body,
         accent,
+        ...(sprite ? [sprite] : []),
         hpBg,
         hpFill,
         nameLabel,
@@ -2142,6 +2180,7 @@ export class WulandScene extends Phaser.Scene {
         container,
         body,
         accent,
+        sprite,
         selectionRing,
         markLabel,
         nameLabel,
@@ -2160,6 +2199,17 @@ export class WulandScene extends Phaser.Scene {
     avatar.nameLabel.setText(enemy.name);
     avatar.body.setFillStyle(definition.color, enemy.alive ? 0.95 : 0.2);
     avatar.accent.setFillStyle(definition.accentColor, enemy.alive ? 0.9 : 0.2);
+    avatar.body.setVisible(enemy.type !== "zombie");
+    avatar.accent.setVisible(enemy.type !== "zombie");
+    if (avatar.sprite) {
+      const movingLeft = enemy.x < avatar.container.x - 0.3;
+      const movingRight = enemy.x > avatar.container.x + 0.3;
+      avatar.sprite
+        .setVisible(enemy.type === "zombie")
+        .setAlpha(enemy.alive ? 1 : 0.22)
+        .setFlipX(movingLeft ? true : movingRight ? false : avatar.sprite.flipX)
+        .clearTint();
+    }
     avatar.hpFill.setDisplaySize(62 * hpPercent, 6);
     avatar.markLabel.setVisible(enemy.markedUntil > Date.now());
     avatar.selectionRing.setVisible(enemy.enemyId === this.selectedEnemyId && enemy.alive);
@@ -2364,6 +2414,19 @@ export class WulandScene extends Phaser.Scene {
     this.enemyAvatars.forEach((avatar) => {
       avatar.container.x = Phaser.Math.Linear(avatar.container.x, avatar.target.x, interpolation);
       avatar.container.y = Phaser.Math.Linear(avatar.container.y, avatar.target.y, interpolation);
+
+      if (avatar.sprite && avatar.lastState.alive) {
+        const moving = Phaser.Math.Distance.Between(
+          avatar.container.x,
+          avatar.container.y,
+          avatar.target.x,
+          avatar.target.y
+        ) > 1.4;
+        avatar.sprite.y = moving
+          ? 2 + Math.sin(this.time.now / 125 + petAnimationSeed(avatar.enemyId)) * 1.6
+          : 2;
+        avatar.sprite.setAngle(moving ? Math.sin(this.time.now / 210 + petAnimationSeed(avatar.enemyId)) * 2 : 0);
+      }
     });
   }
 
@@ -2452,7 +2515,7 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private updateCaveVisibility(player: PlayerNetworkState): void {
-    if (this.currentMapId !== "the_cave" || !this.caveDarkness || !this.caveNotice) {
+    if (!isCaveMapId(this.currentMapId) || !this.caveDarkness || !this.caveNotice) {
       return;
     }
 
@@ -2540,7 +2603,7 @@ export class WulandScene extends Phaser.Scene {
     direction: Direction
   ): void {
     this.drawFlashlightBackShadow(graphics, width, height, playerScreenX, playerScreenY, direction);
-    this.drawScreenVignette(graphics, width, height, 0.34);
+    this.drawScreenVignette(graphics, width, height, 0.42);
 
     const directionVector = vectorForDirection(direction);
     const perpendicular = { x: -directionVector.y, y: directionVector.x };
@@ -2599,7 +2662,7 @@ export class WulandScene extends Phaser.Scene {
     playerScreenY: number,
     direction: Direction
   ): void {
-    graphics.fillStyle(0x020407, 0.38);
+    graphics.fillStyle(0x020407, 0.88);
 
     if (direction === "up") {
       graphics.fillRect(0, playerScreenY + 26, width, Math.max(0, height - playerScreenY - 26));
@@ -3115,6 +3178,14 @@ export class WulandScene extends Phaser.Scene {
   }
 
   private flashEnemy(avatar: EnemyAvatar, color: number): void {
+    if (avatar.sprite) {
+      avatar.sprite.setTint(color);
+
+      this.time.delayedCall(110, () => {
+        avatar.sprite?.clearTint();
+      });
+    }
+
     avatar.body.setFillStyle(color, 1);
 
     this.time.delayedCall(110, () => {
@@ -3693,6 +3764,68 @@ const interiorPaletteForMap = (
   return { floor: 0x637a55, wall: 0x33432f, accent: 0xd8f5a2 };
 };
 
+const cavePaletteForMap = (
+  mapId: WulandMapId
+): {
+  floorBase: number;
+  floor: number;
+  floorLight: number;
+  floorDark: number;
+  wall: number;
+  wallMid: number;
+  wallLight: number;
+  wallDark: number;
+  crystal: number;
+  crystalLight: number;
+  pool: number;
+} => {
+  if (mapId === "the_cave_abyss") {
+    return {
+      floorBase: 0x09080f,
+      floor: 0x11101a,
+      floorLight: 0x191522,
+      floorDark: 0x07060b,
+      wall: 0x21192b,
+      wallMid: 0x18131f,
+      wallLight: 0x2d2138,
+      wallDark: 0x050409,
+      crystal: 0xbc5cff,
+      crystalLight: 0xf3c7ff,
+      pool: 0x170927
+    };
+  }
+
+  if (mapId === "the_cave_depths") {
+    return {
+      floorBase: 0x0c1214,
+      floor: 0x111a1c,
+      floorLight: 0x1b2728,
+      floorDark: 0x070c0e,
+      wall: 0x1f3134,
+      wallMid: 0x172629,
+      wallLight: 0x2c4245,
+      wallDark: 0x04090a,
+      crystal: 0x5eead4,
+      crystalLight: 0xccfbf1,
+      pool: 0x061d22
+    };
+  }
+
+  return {
+    floorBase: 0x10151c,
+    floor: 0x121922,
+    floorLight: 0x18222b,
+    floorDark: 0x0c1118,
+    wall: 0x202a34,
+    wallMid: 0x171f28,
+    wallLight: 0x27323d,
+    wallDark: 0x05080c,
+    crystal: 0x35d0ba,
+    crystalLight: 0x6cf2df,
+    pool: 0x071d26
+  };
+};
+
 const npcDefinitionFor = (npcId: string) =>
   WULAND_AMBIENT_NPCS.find((npc) => npc.npcId === npcId);
 
@@ -3822,6 +3955,68 @@ const animalTextureKey = (scene: Phaser.Scene, npc: AmbientNpcNetworkState): str
 };
 
 const petSpriteTextureKey = (type: "cat" | "dog"): string => `pet-sprite-${type}`;
+
+const zombieTextureKey = (scene: Phaser.Scene): string => {
+  const textureKey = "enemy-zombie-human-v2";
+
+  if (scene.textures.exists(textureKey)) {
+    return textureKey;
+  }
+
+  const graphics = scene.add.graphics({ x: -1000, y: -1000 });
+  graphics.fillStyle(0x000000, 0.28);
+  graphics.fillEllipse(32, 69, 42, 12);
+
+  graphics.lineStyle(4, 0x24202a, 1);
+  graphics.fillStyle(0x263447, 1);
+  graphics.fillRect(23, 46, 8, 18);
+  graphics.fillRect(35, 46, 8, 18);
+  graphics.fillStyle(0x141923, 1);
+  graphics.fillRect(19, 62, 14, 6);
+  graphics.fillRect(34, 62, 14, 6);
+
+  graphics.lineStyle(5, 0x6f9273, 1);
+  graphics.beginPath();
+  graphics.moveTo(20, 30);
+  graphics.lineTo(8, 42);
+  graphics.moveTo(45, 30);
+  graphics.lineTo(57, 41);
+  graphics.strokePath();
+
+  graphics.lineStyle(3, 0x1a2022, 1);
+  graphics.fillStyle(0x314e49, 1);
+  graphics.fillRect(20, 25, 26, 27);
+  graphics.fillStyle(0x596f64, 1);
+  graphics.fillTriangle(20, 25, 31, 47, 20, 52);
+  graphics.fillStyle(0x4b2b30, 1);
+  graphics.fillTriangle(46, 25, 36, 48, 46, 52);
+  graphics.strokeRect(20, 25, 26, 27);
+
+  graphics.fillStyle(0x82a77c, 1);
+  graphics.fillCircle(32, 16, 14);
+  graphics.fillRect(24, 20, 16, 9);
+  graphics.fillStyle(0x34423f, 1);
+  graphics.fillTriangle(21, 6, 30, 1, 27, 14);
+  graphics.fillTriangle(31, 3, 45, 7, 35, 12);
+  graphics.fillStyle(0xe8f6d8, 1);
+  graphics.fillCircle(27, 15, 2.2);
+  graphics.fillCircle(37, 14, 2.2);
+  graphics.fillStyle(0x1b1f21, 1);
+  graphics.fillCircle(27, 15, 1);
+  graphics.fillCircle(37, 14, 1);
+  graphics.lineStyle(2, 0x3d3137, 1);
+  graphics.lineBetween(27, 25, 38, 24);
+
+  graphics.fillStyle(0x9bbd8d, 1);
+  graphics.fillCircle(7, 42, 4);
+  graphics.fillCircle(58, 42, 4);
+  graphics.fillStyle(0xb44545, 0.75);
+  graphics.fillRect(34, 39, 4, 7);
+
+  graphics.generateTexture(textureKey, 64, 78);
+  graphics.destroy();
+  return textureKey;
+};
 
 const petAnimationSeed = (npcId: string): number => {
   let seed = 0;

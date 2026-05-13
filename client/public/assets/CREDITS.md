@@ -20,7 +20,7 @@
 
 | In-game use | Asset/source | Author | License | URL | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Mobile action controls | Lucide static icons: Sword, Sparkles, X, Settings, Hand, Cake Slice, Door Open, Package Open, Shopping Bag, Gift, Paw Print, Message Circle, Circle Help | Lucide Contributors | ISC | https://lucide.dev/ | Stroke width adjusted for WULAND touch readability and recolored through CSS masks. |
+| Mobile action controls | Lucide static icons: Sword, Sparkles, X, Settings, Hand, Cake Slice, Door Open, Package Open, Shopping Bag, Gift, Paw Print, Message Circle, Circle Help, Shield | Lucide Contributors | ISC | https://lucide.dev/ | Stroke width adjusted for WULAND touch readability and recolored through CSS masks. |
 
 ## Pet Sprites
 

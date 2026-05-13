@@ -1,0 +1,16 @@
+<!-- @license lucide-static v1.14.0 - ISC -->
+<svg
+  class="lucide lucide-shield-star"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2.35"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 3 5 6v5.5c0 4.35 2.85 7.35 7 9.5 4.15-2.15 7-5.15 7-9.5V6l-7-3Z" />
+  <path d="m12 8 .75 2.15 2.25.05-1.78 1.34.65 2.16L12 12.42 10.13 13.7l.65-2.16L9 10.2l2.25-.05L12 8Z" />
+</svg>

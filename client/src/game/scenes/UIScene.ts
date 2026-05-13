@@ -104,6 +104,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.on("wuland:chatCleared", this.handleChatCleared, this);
     this.game.events.on("wuland:shopFeedback", this.handleShopFeedback, this);
     this.game.events.on("wuland:focusChat", this.focusChatInput, this);
+    this.game.events.on("wuland:toggleGodModeUi", this.toggleGodMode, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
   }
 
@@ -205,13 +206,13 @@ export class UIScene extends Phaser.Scene {
             <p data-settings-connection></p>
             <p data-settings-counts></p>
           </section>
-          <h2>Controls</h2>
-          <p>Phone first: tap the map to travel, use the joystick for tight spaces, tap a target, then press Attack.</p>
-          <p>Tap a hotbar slot to select it. Attack uses the selected weapon. Use eats selected cakes. Interact uses doors, picks up nearby drops, or opens the merchant shop. Gift sends selected cake to a nearby player.</p>
-          <p>Desktop still works: WASD / arrows move, Space attacks, E uses, F interacts, G gifts, and 1-9 select hotbar slots.</p>
-          <p>Enter focuses chat. Enter again sends. Escape leaves chat input.</p>
-          <p>Drag hotbar items to swap slots. Drag outside the hotbar to drop one item from that slot on the map. Sleeping players stay visible and can be targeted in prototype combat.</p>
-          <p>God Mode is a prototype admin tool: when active, click a dropped item to delete it, click another player to delete that character, or use Clear Chat to remove persisted chat history.</p>
+          <h2>Settings</h2>
+          <div class="settings-actions">
+            <button type="button" class="secondary" data-action="god-mode">God Mode</button>
+            <button type="button" class="secondary god-clear-chat-button" data-action="clear-chat">Clear Chat</button>
+            <button type="button" class="secondary" data-action="edit-character">Edit Character</button>
+          </div>
+          <p class="settings-note">God Mode is a prototype admin tool for deleting players, deleting dropped items, and clearing persisted chat.</p>
         </div>
       </section>
       <section class="merchant-shop" data-merchant-shop>
@@ -232,19 +233,19 @@ export class UIScene extends Phaser.Scene {
     uiRoot.appendChild(this.root);
 
     this.root
-      .querySelector('[data-action="edit-character"]')
-      ?.addEventListener("click", () => {
+      .querySelectorAll('[data-action="edit-character"]')
+      .forEach((button) => button.addEventListener("click", () => {
         this.game.events.emit("wuland:editCharacter");
-      });
+      }));
     this.root
       .querySelector('[data-action="help"]')
       ?.addEventListener("click", () => this.toggleHelp());
     this.root
-      .querySelector('[data-action="god-mode"]')
-      ?.addEventListener("click", () => this.toggleGodMode());
+      .querySelectorAll('[data-action="god-mode"]')
+      .forEach((button) => button.addEventListener("click", () => this.toggleGodMode()));
     this.root
-      .querySelector('[data-action="clear-chat"]')
-      ?.addEventListener("click", () => this.clearChatHistory());
+      .querySelectorAll('[data-action="clear-chat"]')
+      .forEach((button) => button.addEventListener("click", () => this.clearChatHistory()));
     this.root
       .querySelector('[data-action="close-help"]')
       ?.addEventListener("click", () => this.toggleHelp(false));
@@ -441,30 +442,34 @@ export class UIScene extends Phaser.Scene {
   }
 
   private setGodModeButton(): void {
-    const button = this.root?.querySelector<HTMLButtonElement>('[data-action="god-mode"]');
+    const buttons = this.root?.querySelectorAll<HTMLButtonElement>('[data-action="god-mode"]');
 
-    if (!button) {
+    if (!buttons?.length) {
       return;
     }
 
-    button.disabled = !this.connection.godModeAvailable;
-    button.textContent = this.connection.godModeActive ? "God: On" : "God Mode";
-    button.title = this.connection.godModeActive
-      ? "God Mode: click a dropped item to delete it, or another player to delete their account."
-      : "Prototype admin cleanup tool.";
+    buttons.forEach((button) => {
+      button.disabled = !this.connection.godModeAvailable;
+      button.textContent = this.connection.godModeActive ? "God: On" : "God Mode";
+      button.title = this.connection.godModeActive
+        ? "God Mode: click a dropped item to delete it, or another player to delete their account."
+        : "Prototype admin cleanup tool.";
+    });
   }
 
   private setClearChatButton(): void {
-    const button = this.root?.querySelector<HTMLButtonElement>('[data-action="clear-chat"]');
+    const buttons = this.root?.querySelectorAll<HTMLButtonElement>('[data-action="clear-chat"]');
 
-    if (!button) {
+    if (!buttons?.length) {
       return;
     }
 
-    button.disabled = !this.connection.godModeAvailable || !this.connection.godModeActive;
-    button.title = this.connection.godModeActive
-      ? "Clear persisted chat messages for everyone."
-      : "Turn on God Mode to clear chat.";
+    buttons.forEach((button) => {
+      button.disabled = !this.connection.godModeAvailable || !this.connection.godModeActive;
+      button.title = this.connection.godModeActive
+        ? "Clear persisted chat messages for everyone."
+        : "Turn on God Mode to clear chat.";
+    });
   }
 
   private setChatButton(): void {
@@ -853,6 +858,7 @@ export class UIScene extends Phaser.Scene {
     this.game.events.off("wuland:chatCleared", this.handleChatCleared, this);
     this.game.events.off("wuland:shopFeedback", this.handleShopFeedback, this);
     this.game.events.off("wuland:focusChat", this.focusChatInput, this);
+    this.game.events.off("wuland:toggleGodModeUi", this.toggleGodMode, this);
     window.removeEventListener("pointermove", this.handleHotbarPointerMove);
     window.removeEventListener("pointerup", this.handleHotbarPointerUp);
     window.removeEventListener("keydown", this.handleWindowKeydown, true);

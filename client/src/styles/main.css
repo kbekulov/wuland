@@ -927,12 +927,14 @@ label span,
 }
 
 .hotbar-count {
-  right: 4px;
+  left: 4px;
+  right: auto;
   bottom: 4px;
   min-width: 17px;
   height: 17px;
   background: #fff3bf;
   color: #172224;
+  z-index: 2;
 }
 
 .hotbar-charge {
@@ -944,6 +946,7 @@ label span,
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.42);
   overflow: hidden;
+  z-index: 1;
 }
 
 .hotbar-charge i {
@@ -1149,6 +1152,20 @@ label span,
   font-size: 12px;
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-actions button {
+  justify-content: center;
+  min-height: 44px;
+}
+
+.settings-note {
+  font-size: 12px;
 }
 
 .merchant-shop h2 {
@@ -1542,6 +1559,22 @@ body[data-touch-controls] .mobile-controls {
   bottom: 10px;
 }
 
+.mobile-radial-menu [data-mobile-action="god"] {
+  --mobile-icon: url("/assets/ui/god-mode.svg");
+  left: 58px;
+  bottom: -42px;
+}
+
+.mobile-radial-menu [data-mobile-action="god"].active {
+  border-color: rgba(255, 243, 191, 0.55);
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 243, 191, 0.18), transparent 34%),
+    rgba(14, 29, 30, 0.94);
+  box-shadow:
+    0 0 0 2px rgba(255, 243, 191, 0.16),
+    0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
 .mobile-radial-menu .mobile-control-icon {
   display: block;
   width: 30px;
@@ -1841,13 +1874,19 @@ body[data-touch-controls] .mobile-controls {
   }
 
   .mobile-radial-menu [data-mobile-action="chat"] {
-    left: 66px;
-    bottom: 32px;
+    left: 34px;
+    bottom: 42px;
   }
 
   .mobile-radial-menu [data-mobile-action="help"] {
-    right: 66px;
-    bottom: 32px;
+    right: 34px;
+    bottom: 42px;
+  }
+
+  .mobile-radial-menu [data-mobile-action="god"] {
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
   }
 
   .help-overlay,
@@ -1887,8 +1926,7 @@ body[data-touch-controls] .mobile-controls {
     bottom: max(172px, calc(env(safe-area-inset-bottom) + 172px));
   }
 
-  .hotbar-number,
-  .hotbar-count {
+  .hotbar-number {
     display: none;
   }
 

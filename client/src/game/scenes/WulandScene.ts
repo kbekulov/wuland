@@ -1147,6 +1147,10 @@ export class WulandScene extends Phaser.Scene {
             <span class="mobile-control-icon" aria-hidden="true"></span>
             <span class="mobile-control-label">Help</span>
           </button>
+          <button type="button" data-mobile-action="god" aria-label="God Mode">
+            <span class="mobile-control-icon" aria-hidden="true"></span>
+            <span class="mobile-control-label">God</span>
+          </button>
         </div>
         <button type="button" class="mobile-primary-action" data-mobile-action="primary" aria-label="Attack">
           <span class="mobile-control-icon" aria-hidden="true"></span>
@@ -1233,6 +1237,11 @@ export class WulandScene extends Phaser.Scene {
       this.closeMobileActionMenu();
       this.game.events.emit("wuland:toggleHelp");
     });
+    root.querySelector('[data-mobile-action="god"]')?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.closeMobileActionMenu();
+      this.game.events.emit("wuland:toggleGodModeUi");
+    });
     root.querySelector('[data-mobile-action="menu"]')?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       this.closeMobileActionMenu();
@@ -1306,6 +1315,7 @@ export class WulandScene extends Phaser.Scene {
     const interactButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="pickup"]');
     const giftButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="gift"]');
     const petButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="pet"]');
+    const godButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="god"]');
     const primaryButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="primary"]');
     const actButton = this.mobileRoot.querySelector<HTMLButtonElement>('[data-mobile-action="act-toggle"]');
     const primary = this.mobilePrimaryAction(selectedDefinition);
@@ -1372,6 +1382,15 @@ export class WulandScene extends Phaser.Scene {
       petButton.title = this.connectionState.nearbyPetName
         ? `Pet ${this.connectionState.nearbyPetName}`
         : "Stand near a cat or dog";
+    }
+
+    if (godButton) {
+      godButton.disabled = !this.connectionState.godModeAvailable;
+      godButton.classList.toggle("active", this.connectionState.godModeActive);
+      setMobileButtonLabel(godButton, this.connectionState.godModeActive ? "God On" : "God");
+      godButton.title = this.connectionState.godModeActive
+        ? "God Mode is active. Tap players or dropped items to delete them."
+        : "Toggle prototype God Mode.";
     }
   }
 
@@ -2552,7 +2571,8 @@ export class WulandScene extends Phaser.Scene {
         height,
         playerScreenX,
         playerScreenY,
-        player.direction
+        player.direction,
+        lightSticks
       );
       this.drawLightStickGlows(this.caveDarkness, lightSticks);
       this.caveNotice.setVisible(false);
@@ -2612,8 +2632,6 @@ export class WulandScene extends Phaser.Scene {
       graphics.fillCircle(source.x, source.y, source.radius * 1.06);
       graphics.fillStyle(0xd9ff99, 0.075);
       graphics.fillCircle(source.x, source.y, source.radius * 0.64);
-      graphics.lineStyle(2, 0xd9ff99, 0.18);
-      graphics.strokeCircle(source.x, source.y, source.radius * 0.72);
     });
   }
 
@@ -2683,10 +2701,6 @@ export class WulandScene extends Phaser.Scene {
       }
     }
 
-    graphics.lineStyle(18, 0x020407, 0.28);
-    graphics.strokeCircle(playerScreenX, playerScreenY, radius + 10);
-    graphics.lineStyle(2, 0xfff3bf, 0.16);
-    graphics.strokeCircle(playerScreenX, playerScreenY, radius);
     this.drawLightStickGlows(graphics, extraLights);
     this.drawScreenVignette(graphics, width, height, 0.74);
   }
@@ -2697,9 +2711,10 @@ export class WulandScene extends Phaser.Scene {
     height: number,
     playerScreenX: number,
     playerScreenY: number,
-    direction: Direction
+    direction: Direction,
+    extraLights: Array<{ x: number; y: number; radius: number }> = []
   ): void {
-    this.drawFlashlightBackShadow(graphics, width, height, playerScreenX, playerScreenY, direction);
+    this.drawFlashlightBackShadow(graphics, width, height, playerScreenX, playerScreenY, direction, extraLights);
     this.drawScreenVignette(graphics, width, height, 0.42);
 
     const directionVector = vectorForDirection(direction);
@@ -2757,26 +2772,35 @@ export class WulandScene extends Phaser.Scene {
     height: number,
     playerScreenX: number,
     playerScreenY: number,
-    direction: Direction
+    direction: Direction,
+    extraLights: Array<{ x: number; y: number; radius: number }> = []
   ): void {
+    const bandHeight = 8;
     graphics.fillStyle(0x020407, 0.88);
 
-    if (direction === "up") {
-      graphics.fillRect(0, playerScreenY + 26, width, Math.max(0, height - playerScreenY - 26));
-      return;
-    }
+    for (let y = 0; y < height; y += bandHeight) {
+      const bandCenterY = y + bandHeight / 2;
+      const shadowIntervals = flashlightShadowIntervalsForBand(
+        width,
+        playerScreenX,
+        playerScreenY,
+        bandCenterY,
+        direction
+      );
 
-    if (direction === "down") {
-      graphics.fillRect(0, 0, width, Math.max(0, playerScreenY - 26));
-      return;
-    }
+      if (shadowIntervals.length === 0) {
+        continue;
+      }
 
-    if (direction === "left") {
-      graphics.fillRect(playerScreenX + 26, 0, Math.max(0, width - playerScreenX - 26), height);
-      return;
-    }
+      const lightIntervals = lightIntervalsForBand(extraLights, bandCenterY, width);
+      const darkIntervals = subtractIntervals(shadowIntervals, lightIntervals);
 
-    graphics.fillRect(0, 0, Math.max(0, playerScreenX - 26), height);
+      darkIntervals.forEach((interval) => {
+        if (interval.right > interval.left) {
+          graphics.fillRect(interval.left, y, interval.right - interval.left, bandHeight + 1);
+        }
+      });
+    }
   }
 
   private drawScreenVignette(
@@ -4142,6 +4166,87 @@ const setMobileButtonLabel = (button: HTMLButtonElement, label: string): void =>
   }
 
   button.setAttribute("aria-label", label);
+};
+
+const lightIntervalsForBand = (
+  lights: Array<{ x: number; y: number; radius: number }>,
+  bandCenterY: number,
+  width: number
+): Array<{ left: number; right: number }> =>
+  lights
+    .flatMap((light) => {
+      const dy = bandCenterY - light.y;
+
+      if (Math.abs(dy) >= light.radius) {
+        return [];
+      }
+
+      const halfWidth = Math.sqrt(light.radius * light.radius - dy * dy);
+      return [{
+        left: Phaser.Math.Clamp(light.x - halfWidth, 0, width),
+        right: Phaser.Math.Clamp(light.x + halfWidth, 0, width)
+      }];
+    })
+    .filter((interval) => interval.right > interval.left)
+    .sort((a, b) => a.left - b.left);
+
+const subtractIntervals = (
+  sourceIntervals: Array<{ left: number; right: number }>,
+  holes: Array<{ left: number; right: number }>
+): Array<{ left: number; right: number }> => {
+  const result: Array<{ left: number; right: number }> = [];
+
+  sourceIntervals.forEach((source) => {
+    let cursor = source.left;
+
+    holes.forEach((hole) => {
+      if (hole.right <= cursor || hole.left >= source.right) {
+        return;
+      }
+
+      if (hole.left > cursor) {
+        result.push({ left: cursor, right: Math.min(hole.left, source.right) });
+      }
+
+      cursor = Math.max(cursor, hole.right);
+    });
+
+    if (cursor < source.right) {
+      result.push({ left: cursor, right: source.right });
+    }
+  });
+
+  return result;
+};
+
+const flashlightShadowIntervalsForBand = (
+  width: number,
+  playerScreenX: number,
+  playerScreenY: number,
+  bandCenterY: number,
+  direction: Direction
+): Array<{ left: number; right: number }> => {
+  const boundary = 26;
+
+  if (direction === "up") {
+    return bandCenterY >= playerScreenY + boundary
+      ? [{ left: 0, right: width }]
+      : [];
+  }
+
+  if (direction === "down") {
+    return bandCenterY <= playerScreenY - boundary
+      ? [{ left: 0, right: width }]
+      : [];
+  }
+
+  if (direction === "left") {
+    const left = Phaser.Math.Clamp(playerScreenX + boundary, 0, width);
+    return left < width ? [{ left, right: width }] : [];
+  }
+
+  const right = Phaser.Math.Clamp(playerScreenX - boundary, 0, width);
+  return right > 0 ? [{ left: 0, right }] : [];
 };
 
 const NPC_CHARACTER_VISUALS = {

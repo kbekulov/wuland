@@ -97,7 +97,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 20;
+export const WULAND_PROTOCOL_VERSION = 21;
 export const FLASHLIGHT_ITEM_ID = "flashlight";
 export const PLAYER_STARTING_MONEY = 999_999;
 
@@ -965,7 +965,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     speed: 66,
     damage: 24,
     attackRange: 42,
-    aggroRange: 900,
+    aggroRange: 680,
     contactCooldownMs: 1150,
     respawnMs: 14000,
     radius: 21,

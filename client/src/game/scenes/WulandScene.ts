@@ -2602,13 +2602,10 @@ export class WulandScene extends Phaser.Scene {
     playerScreenY: number,
     direction: Direction
   ): void {
-    this.drawFlashlightBackShadow(graphics, width, height, playerScreenX, playerScreenY, direction);
-    this.drawScreenVignette(graphics, width, height, 0.42);
-
     const directionVector = vectorForDirection(direction);
     const perpendicular = { x: -directionVector.y, y: directionVector.x };
-    const length = Math.min(Math.max(width, height) * 0.64, 620);
-    const farHalfWidth = Math.min(length * 0.42, 260);
+    const length = Math.min(Math.max(width, height) * 0.62, 600);
+    const farHalfWidth = Math.min(length * 0.23, 148);
     const origin = {
       x: playerScreenX + directionVector.x * 18,
       y: playerScreenY + directionVector.y * 18
@@ -2618,13 +2615,24 @@ export class WulandScene extends Phaser.Scene {
       y: origin.y + directionVector.y * length
     };
 
+    this.drawFlashlightConeDarkness(
+      graphics,
+      width,
+      height,
+      origin,
+      directionVector,
+      length,
+      farHalfWidth
+    );
+    this.drawScreenVignette(graphics, width, height, 0.56);
+
     for (let layer = 7; layer >= 1; layer -= 1) {
       const t = layer / 7;
       const layerEnd = {
         x: origin.x + directionVector.x * length * t,
         y: origin.y + directionVector.y * length * t
       };
-      const layerHalfWidth = farHalfWidth * (0.18 + t * 0.82);
+      const layerHalfWidth = farHalfWidth * (0.24 + t * 0.76);
       const alpha = 0.018 + (1 - t) * 0.034;
 
       graphics.fillStyle(0xfff3bf, alpha);
@@ -2642,16 +2650,68 @@ export class WulandScene extends Phaser.Scene {
     graphics.fillTriangle(
       origin.x,
       origin.y,
-      end.x + perpendicular.x * farHalfWidth * 0.46,
-      end.y + perpendicular.y * farHalfWidth * 0.46,
-      end.x - perpendicular.x * farHalfWidth * 0.46,
-      end.y - perpendicular.y * farHalfWidth * 0.46
+      end.x + perpendicular.x * farHalfWidth * 0.36,
+      end.y + perpendicular.y * farHalfWidth * 0.36,
+      end.x - perpendicular.x * farHalfWidth * 0.36,
+      end.y - perpendicular.y * farHalfWidth * 0.36
     );
     graphics.lineStyle(2, 0xfff3bf, 0.12);
     graphics.lineBetween(origin.x, origin.y, end.x + perpendicular.x * farHalfWidth, end.y + perpendicular.y * farHalfWidth);
     graphics.lineBetween(origin.x, origin.y, end.x - perpendicular.x * farHalfWidth, end.y - perpendicular.y * farHalfWidth);
     graphics.fillStyle(0xfff3bf, 0.12);
     graphics.fillCircle(origin.x, origin.y, 54);
+  }
+
+  private drawFlashlightConeDarkness(
+    graphics: Phaser.GameObjects.Graphics,
+    width: number,
+    height: number,
+    origin: { x: number; y: number },
+    directionVector: { x: number; y: number },
+    length: number,
+    farHalfWidth: number
+  ): void {
+    const bandSize = 7;
+    const nearHalfWidth = 28;
+    graphics.fillStyle(0x020407, 0.86);
+
+    if (directionVector.x === 0) {
+      for (let y = 0; y < height; y += bandSize) {
+        const bandCenter = y + bandSize / 2;
+        const forwardDistance = (bandCenter - origin.y) * directionVector.y;
+
+        if (forwardDistance < 0 || forwardDistance > length) {
+          graphics.fillRect(0, y, width, bandSize + 1);
+          continue;
+        }
+
+        const t = forwardDistance / length;
+        const halfWidth = nearHalfWidth + (farHalfWidth - nearHalfWidth) * Math.pow(t, 0.92);
+        const left = Phaser.Math.Clamp(origin.x - halfWidth, 0, width);
+        const right = Phaser.Math.Clamp(origin.x + halfWidth, 0, width);
+        graphics.fillRect(0, y, left, bandSize + 1);
+        graphics.fillRect(right, y, Math.max(0, width - right), bandSize + 1);
+      }
+
+      return;
+    }
+
+    for (let x = 0; x < width; x += bandSize) {
+      const bandCenter = x + bandSize / 2;
+      const forwardDistance = (bandCenter - origin.x) * directionVector.x;
+
+      if (forwardDistance < 0 || forwardDistance > length) {
+        graphics.fillRect(x, 0, bandSize + 1, height);
+        continue;
+      }
+
+      const t = forwardDistance / length;
+      const halfHeight = nearHalfWidth + (farHalfWidth - nearHalfWidth) * Math.pow(t, 0.92);
+      const top = Phaser.Math.Clamp(origin.y - halfHeight, 0, height);
+      const bottom = Phaser.Math.Clamp(origin.y + halfHeight, 0, height);
+      graphics.fillRect(x, 0, bandSize + 1, top);
+      graphics.fillRect(x, bottom, bandSize + 1, Math.max(0, height - bottom));
+    }
   }
 
   private drawFlashlightBackShadow(

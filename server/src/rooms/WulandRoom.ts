@@ -114,7 +114,7 @@ const NPC_MAP_CHANGE_CHANCE = 0.42;
 const ENEMY_WANDER_TARGET_REACHED_DISTANCE = 24;
 const ENEMY_WANDER_TARGET_REFRESH_MS = 12000;
 const ENEMY_WANDER_STUCK_REFRESH_MS = 1200;
-const ZOMBIE_PURSUIT_RANGE = 1200;
+const ZOMBIE_PURSUIT_RANGE = 680;
 const PET_REACTION_DURATION_MS = 2600;
 const PET_BITE_DAMAGE = 4;
 const FORCE_DELETED_CLOSE_CODE = 4008;
@@ -927,7 +927,9 @@ export class WulandRoom extends Room<WulandRoomState> {
         enemy.weakenedUntil = 0;
       }
 
-      if (this.enemyAiPaused) {
+      const isCaveZombie = enemy.type === "zombie" && isCaveMapId(normalizeMapId(enemy.mapId));
+
+      if (this.enemyAiPaused && !isCaveZombie) {
         enemy.targetPlayerId = "";
         return;
       }
@@ -1016,6 +1018,12 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
+      const mapId = normalizeMapId(enemy.mapId);
+
+      if (enemy.type === "zombie" && isCaveMapId(mapId) && !hasLineOfSight(enemy, player, mapId)) {
+        return;
+      }
+
       const score = distanceToEnemy;
 
       if (score < bestScore) {
@@ -1092,7 +1100,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     const contactDamage = enemy.type === "zombie"
       ? Math.max(1, Math.ceil(player.maxHp * 0.2))
       : definition.damage;
-    this.damagePlayer(player, contactDamage, enemy.enemyId, now);
+    this.damagePlayer(player, contactDamage, enemy.enemyId, now, enemy.type === "zombie");
   }
 
   private handleWeaponAttack(playerId: string, request: CombatRequest): void {
@@ -1357,14 +1365,15 @@ export class WulandRoom extends Room<WulandRoomState> {
     player: WulandPlayerSchema,
     amount: number,
     sourceId: string,
-    now: number
+    now: number,
+    bypassShield = false
   ): void {
     if (!canDamagePlayer(player)) {
       return;
     }
 
     const rounded = Math.max(1, Math.round(amount));
-    const shieldDamage = Math.min(player.shield, rounded);
+    const shieldDamage = bypassShield ? 0 : Math.min(player.shield, rounded);
     player.shield = Math.max(0, player.shield - shieldDamage);
     const hpDamage = rounded - shieldDamage;
     player.hp = Math.max(0, player.hp - hpDamage);
@@ -2471,6 +2480,24 @@ const weaponTargetPosition = (target: WeaponTarget): WorldPosition => ({
 
 const distance = (a: WorldPosition, b: WorldPosition): number =>
   Math.hypot(a.x - b.x, a.y - b.y);
+
+const hasLineOfSight = (from: WorldPosition, to: WorldPosition, mapId: WulandMapId): boolean => {
+  const collisions = getMapCollisionRects(mapId);
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  const steps = Math.max(1, Math.ceil(length / 24));
+
+  for (let index = 1; index < steps; index += 1) {
+    const t = index / steps;
+
+    if (collidesWithWorld({ x: from.x + dx * t, y: from.y + dy * t }, collisions)) {
+      return false;
+    }
+  }
+
+  return true;
+};
 
 const vectorForDirection = (direction: Direction): WorldPosition => {
   if (direction === "left") {

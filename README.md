@@ -171,7 +171,7 @@ Cakes are consumables. Select a cake with `1` through `9`, then press `E` to eat
 For temporary live-world cleanup, the server also supports:
 
 - `CLEAR_PLAYER_STORE_ON_START=true`: wipes persisted sleeping/offline players from the JSON store when the server starts.
-- `ENEMY_AI_PAUSED=true`: freezes enemy wandering, chasing, and contact damage while keeping enemies visible and attackable.
+- `ENEMY_AI_PAUSED=true`: freezes normal enemy wandering, chasing, and contact damage while keeping enemies visible and attackable. Cave Zombies ignore this flag so the dungeon remains dangerous.
 - `GOD_MODE_ENABLED=true`: enables the prototype admin cleanup button.
 - `GOD_MODE_CODE=secret`: optional code required before destructive God Mode actions work.
 

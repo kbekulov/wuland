@@ -64,6 +64,7 @@ export class UIScene extends Phaser.Scene {
     nearbyGiftPlayerName: "",
     nearbyPetNpcId: "",
     nearbyPetName: "",
+    nearbyPetAction: "",
     currentMapId: WULAND_MAP_ID,
     currentMapName: getMapDisplayName(WULAND_MAP_ID),
     totalDroppedItems: 0,
@@ -578,7 +579,10 @@ export class UIScene extends Phaser.Scene {
     }
 
     if (this.connection.nearbyPetName) {
-      hints.push(prefersTouchLayout() ? `Pet: ${this.connection.nearbyPetName}` : `F: pet ${this.connection.nearbyPetName}`);
+      const petAction = petPromptLabel(this.connection.nearbyPetAction);
+      hints.push(prefersTouchLayout()
+        ? `${petAction}: ${this.connection.nearbyPetName}`
+        : `F: ${petAction.toLowerCase()} ${this.connection.nearbyPetName}`);
     }
 
     return hints.join(" | ");
@@ -932,6 +936,18 @@ const prefersPortraitTouchLayout = (): boolean =>
 
 const touchPortalPrompt = (prompt: string): string =>
   prompt.replace(/^Press F to /, "Interact: ");
+
+const petPromptLabel = (action: WulandConnectionState["nearbyPetAction"]): string => {
+  if (action === "release") {
+    return "Un-recruit pet";
+  }
+
+  if (action === "owned") {
+    return "Already recruited";
+  }
+
+  return "Recruit pet";
+};
 
 const itemIconMarkup = (
   definition: ItemDefinition | null

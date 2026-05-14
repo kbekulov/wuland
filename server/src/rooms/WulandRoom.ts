@@ -116,18 +116,31 @@ const NPC_SPEECH_MIN_MS = 7000;
 const NPC_SPEECH_MAX_MS = 13500;
 const NPC_SPEECH_DURATION_MS = 3600;
 const NPC_MAP_CHANGE_CHANCE = 0.42;
+const PET_FOLLOW_DISTANCE = 58;
+const PET_FOLLOW_TELEPORT_DISTANCE = 620;
+const PET_RECRUIT_MAX_CAKES = 10;
+const PET_RECRUIT_ONE_CAKE_CHANCE = 0.02;
+const PET_RECRUIT_MAX_CHANCE = 0.9;
+const PET_RETALIATION_RANGE = 220;
+const PET_RETALIATION_BITE_RANGE = 38;
+const PET_RETALIATION_BITE_COUNT = 3;
+const PET_RETALIATION_COOLDOWN_MS = 780;
+const PET_DAMAGE_RATIO = 0.03;
 const ENEMY_WANDER_TARGET_REACHED_DISTANCE = 24;
 const ENEMY_WANDER_TARGET_REFRESH_MS = 12000;
 const ENEMY_WANDER_STUCK_REFRESH_MS = 1200;
 const ZOMBIE_PURSUIT_RANGE = 680;
 const PET_REACTION_DURATION_MS = 2600;
-const PET_BITE_DAMAGE = 4;
 const FLASHLIGHT_SAVE_INTERVAL_MS = 5000;
 const FORCE_DELETED_CLOSE_CODE = 4008;
 const PURCHASE_LOG_PREFIX = "[WULAND purchase]";
 
 type NpcTravelTarget = WorldPosition & { mapId: WulandMapId };
 type PlayerRespawnOverride = { mapId: WulandMapId; position: WorldPosition };
+type PetRetaliationTarget =
+  | { kind: "enemy"; targetId: string; bitesRemaining: number; nextBiteAt: number }
+  | { kind: "player"; targetId: string; bitesRemaining: number; nextBiteAt: number }
+  | { kind: "npc"; targetId: string; bitesRemaining: number; nextBiteAt: number };
 type WeaponTarget =
   | { kind: "enemy"; entity: WulandEnemySchema }
   | { kind: "npc"; entity: WulandNpcSchema }
@@ -214,6 +227,7 @@ export class WulandNpcSchema extends Schema {
   @type("string") npcId = "";
   @type("string") type: AmbientNpcType = "intern";
   @type("string") displayName = "";
+  @type("string") ownerPlayerId = "";
   @type("string") mapId: WulandMapId = WULAND_MAP_ID;
   @type("number") x = 0;
   @type("number") y = 0;
@@ -268,6 +282,7 @@ export class WulandRoom extends Room<WulandRoomState> {
   private readonly npcTargets = new Map<string, NpcTravelTarget>();
   private readonly npcNextSpeechAt = new Map<string, number>();
   private readonly npcLastSavedAt = new Map<string, number>();
+  private readonly petRetaliations = new Map<string, PetRetaliationTarget>();
   private readonly lastFlashlightSavedAt = new Map<string, number>();
   private readonly lastChatAt = new Map<string, number>();
   private enemyAiPaused = false;
@@ -867,7 +882,7 @@ export class WulandRoom extends Room<WulandRoomState> {
         return;
       }
 
-      if (isCaveMapId(normalizeMapId(npc.mapId))) {
+      if (isCaveMapId(normalizeMapId(npc.mapId)) && !npc.ownerPlayerId) {
         const mapId = randomAmbientNpcMapId(normalizeMapId(npc.mapId));
         const arrival = randomWalkablePosition(mapId);
         npc.mapId = mapId;
@@ -915,6 +930,10 @@ export class WulandRoom extends Room<WulandRoomState> {
           mapId: normalizeMapId(npc.mapId),
           text: npc.speechText
         });
+      }
+
+      if (this.updateRecruitedPet(npc, definition, deltaMs, now)) {
+        return;
       }
 
       if (isRestingPet(npc)) {
@@ -989,6 +1008,115 @@ export class WulandRoom extends Room<WulandRoomState> {
     npc.y = result.position.y;
     npc.direction = result.direction;
     npc.moving = result.moving;
+  }
+
+  private updateRecruitedPet(
+    npc: WulandNpcSchema,
+    definition: AmbientNpcDefinition,
+    deltaMs: number,
+    now: number
+  ): boolean {
+    if (!isPetNpcType(npc.type) || !npc.ownerPlayerId) {
+      return false;
+    }
+
+    const owner = this.state.players.get(npc.ownerPlayerId);
+
+    if (!owner || !owner.online || owner.sleeping) {
+      npc.moving = false;
+      this.petRetaliations.delete(npc.npcId);
+      this.persistNpcIfNeeded(npc, now);
+      return true;
+    }
+
+    if (normalizeMapId(npc.mapId) !== normalizeMapId(owner.mapId)) {
+      const position = petFollowPosition(owner);
+      npc.mapId = normalizeMapId(owner.mapId);
+      npc.x = position.x;
+      npc.y = position.y;
+      npc.moving = false;
+      this.npcTargets.delete(npc.npcId);
+      this.persistNpcIfNeeded(npc, now, true);
+      return true;
+    }
+
+    if (this.updatePetRetaliation(npc, definition, owner, deltaMs, now)) {
+      this.persistNpcIfNeeded(npc, now);
+      return true;
+    }
+
+    const followDistance = distance(npc, owner);
+
+    if (followDistance > PET_FOLLOW_TELEPORT_DISTANCE) {
+      const position = petFollowPosition(owner);
+      npc.x = position.x;
+      npc.y = position.y;
+      npc.moving = false;
+      this.persistNpcIfNeeded(npc, now, true);
+      return true;
+    }
+
+    if (followDistance > PET_FOLLOW_DISTANCE) {
+      this.moveNpcToward(npc, owner, definition.speed * 1.24, deltaMs);
+    } else {
+      npc.moving = false;
+    }
+
+    this.persistNpcIfNeeded(npc, now);
+    return true;
+  }
+
+  private updatePetRetaliation(
+    npc: WulandNpcSchema,
+    definition: AmbientNpcDefinition,
+    owner: WulandPlayerSchema,
+    deltaMs: number,
+    now: number
+  ): boolean {
+    const retaliation = this.petRetaliations.get(npc.npcId);
+
+    if (!retaliation || retaliation.bitesRemaining <= 0) {
+      this.petRetaliations.delete(npc.npcId);
+      return false;
+    }
+
+    const target = this.resolvePetRetaliationTarget(retaliation);
+
+    if (!target || normalizeMapId(target.mapId) !== normalizeMapId(owner.mapId)) {
+      this.petRetaliations.delete(npc.npcId);
+      return false;
+    }
+
+    const targetPosition = { x: target.x, y: target.y };
+    const distanceToTarget = distance(npc, targetPosition);
+
+    if (distanceToTarget > PET_RETALIATION_RANGE) {
+      this.petRetaliations.delete(npc.npcId);
+      return false;
+    }
+
+    if (distanceToTarget > PET_RETALIATION_BITE_RANGE) {
+      this.moveNpcToward(npc, targetPosition, definition.speed * 1.85, deltaMs);
+      return true;
+    }
+
+    npc.moving = false;
+
+    if (now < retaliation.nextBiteAt) {
+      return true;
+    }
+
+    this.applyPetBite(npc, retaliation, now);
+    retaliation.bitesRemaining -= 1;
+    retaliation.nextBiteAt = now + PET_RETALIATION_COOLDOWN_MS;
+
+    if (retaliation.bitesRemaining <= 0) {
+      this.petRetaliations.delete(npc.npcId);
+    } else {
+      this.petRetaliations.set(npc.npcId, retaliation);
+    }
+
+    return true;
   }
 
   private updateEnemies(deltaMs: number, now: number): void {
@@ -1449,7 +1577,8 @@ export class WulandRoom extends Room<WulandRoomState> {
     amount: number,
     sourceId: string,
     now: number,
-    bypassShield = false
+    bypassShield = false,
+    triggerPetRetaliation = true
   ): void {
     if (!canDamagePlayer(player)) {
       return;
@@ -1461,6 +1590,10 @@ export class WulandRoom extends Room<WulandRoomState> {
     const hpDamage = rounded - shieldDamage;
     player.hp = Math.max(0, player.hp - hpDamage);
     this.broadcastCombatEvent("damage", sourceId, player.playerId, player.x, player.y, rounded, `-${rounded}`, "#ff8787");
+
+    if (triggerPetRetaliation && hpDamage > 0) {
+      this.queuePetRetaliation(player, sourceId, now);
+    }
 
     if (player.hp > 0) {
       this.persistPlayer(player);
@@ -1485,6 +1618,174 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.moveTargets.delete(player.playerId);
     this.persistPlayer(player);
     this.broadcastCombatEvent("player-defeated", sourceId, player.playerId, player.x, player.y, 0, "defeated", "#ff8787");
+  }
+
+  private queuePetRetaliation(owner: WulandPlayerSchema, sourceId: string, now: number): void {
+    const pet = this.petForOwner(owner.playerId);
+
+    if (!pet || !canDamageNpc(pet) || sourceId === pet.npcId) {
+      return;
+    }
+
+    const sourcePlayer = this.state.players.get(sourceId);
+    const sourceEnemy = this.state.enemies.get(sourceId);
+    const sourceNpc = this.state.npcs.get(sourceId);
+
+    if (
+      sourcePlayer &&
+      sourcePlayer.playerId !== owner.playerId &&
+      canDamagePlayer(sourcePlayer) &&
+      normalizeMapId(sourcePlayer.mapId) === normalizeMapId(owner.mapId)
+    ) {
+      this.petRetaliations.set(pet.npcId, {
+        kind: "player",
+        targetId: sourcePlayer.playerId,
+        bitesRemaining: PET_RETALIATION_BITE_COUNT,
+        nextBiteAt: now
+      });
+      return;
+    }
+
+    if (
+      sourceEnemy?.alive &&
+      normalizeMapId(sourceEnemy.mapId) === normalizeMapId(owner.mapId)
+    ) {
+      this.petRetaliations.set(pet.npcId, {
+        kind: "enemy",
+        targetId: sourceEnemy.enemyId,
+        bitesRemaining: PET_RETALIATION_BITE_COUNT,
+        nextBiteAt: now
+      });
+      return;
+    }
+
+    if (
+      sourceNpc &&
+      sourceNpc.npcId !== pet.npcId &&
+      canDamageNpc(sourceNpc) &&
+      normalizeMapId(sourceNpc.mapId) === normalizeMapId(owner.mapId)
+    ) {
+      this.petRetaliations.set(pet.npcId, {
+        kind: "npc",
+        targetId: sourceNpc.npcId,
+        bitesRemaining: PET_RETALIATION_BITE_COUNT,
+        nextBiteAt: now
+      });
+    }
+  }
+
+  private petForOwner(playerId: string): WulandNpcSchema | null {
+    let ownedPet: WulandNpcSchema | null = null;
+
+    this.state.npcs.forEach((npc) => {
+      if (!ownedPet && isPetNpcType(npc.type) && npc.ownerPlayerId === playerId) {
+        ownedPet = npc;
+      }
+    });
+
+    return ownedPet;
+  }
+
+  private releasePetsForOwner(playerId: string, now: number): void {
+    this.state.npcs.forEach((npc) => {
+      if (npc.ownerPlayerId !== playerId) {
+        return;
+      }
+
+      npc.ownerPlayerId = "";
+      npc.moving = false;
+      npc.speechText = "";
+      npc.speechUntil = 0;
+      this.petRetaliations.delete(npc.npcId);
+      this.npcTargets.set(npc.npcId, randomNpcTarget(npc));
+      this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
+      this.persistNpcIfNeeded(npc, now, true);
+    });
+  }
+
+  private resolvePetRetaliationTarget(
+    target: PetRetaliationTarget
+  ): (WulandEnemySchema | WulandPlayerSchema | WulandNpcSchema) | null {
+    if (target.kind === "enemy") {
+      const enemy = this.state.enemies.get(target.targetId);
+      return enemy?.alive ? enemy : null;
+    }
+
+    if (target.kind === "player") {
+      const player = this.state.players.get(target.targetId);
+      return player && canDamagePlayer(player) ? player : null;
+    }
+
+    const npc = this.state.npcs.get(target.targetId);
+    return npc && canDamageNpc(npc) ? npc : null;
+  }
+
+  private applyPetBite(
+    pet: WulandNpcSchema,
+    target: PetRetaliationTarget,
+    now: number
+  ): void {
+    if (target.kind === "enemy") {
+      const enemy = this.state.enemies.get(target.targetId);
+
+      if (!enemy?.alive) {
+        return;
+      }
+
+      const amount = petBiteDamage(enemy.maxHp);
+      enemy.hp = Math.max(0, enemy.hp - amount);
+      this.broadcastCombatEvent("damage", pet.npcId, enemy.enemyId, enemy.x, enemy.y, amount, `bite -${amount}`, "#ffd8a8");
+
+      if (enemy.hp <= 0) {
+        const definition = ENEMY_DEFINITIONS[enemy.type as EnemyType];
+        enemy.alive = false;
+        enemy.targetPlayerId = "";
+        enemy.markedBy = "";
+        enemy.markedUntil = 0;
+        enemy.weakenedUntil = 0;
+        enemy.respawnAt = now + definition.respawnMs;
+        this.enemyWanderTargets.delete(enemy.enemyId);
+        this.enemyWanderTargetSetAt.delete(enemy.enemyId);
+        this.broadcastCombatEvent("enemy-defeated", pet.npcId, enemy.enemyId, enemy.x, enemy.y, 0, `${pet.displayName} bit ${definition.displayName}`, "#91f2bd");
+        this.updateCounts();
+      }
+
+      return;
+    }
+
+    if (target.kind === "player") {
+      const player = this.state.players.get(target.targetId);
+
+      if (!player || !canDamagePlayer(player)) {
+        return;
+      }
+
+      this.damagePlayer(player, petBiteDamage(player.maxHp), pet.npcId, now, false, false);
+      return;
+    }
+
+    const npc = this.state.npcs.get(target.targetId);
+
+    if (!npc || !canDamageNpc(npc)) {
+      return;
+    }
+
+    const amount = petBiteDamage(npc.maxHp);
+    npc.hp = Math.max(0, npc.hp - amount);
+    this.broadcastCombatEvent("damage", pet.npcId, npc.npcId, npc.x, npc.y, amount, `bite -${amount}`, "#ffd8a8");
+
+    if (npc.hp <= 0) {
+      npc.defeated = true;
+      npc.moving = false;
+      npc.speechText = "";
+      npc.speechUntil = 0;
+      npc.respawnAt = now + AMBIENT_NPC_RESPAWN_MS;
+      this.npcTargets.delete(npc.npcId);
+      this.persistNpcIfNeeded(npc, now, true);
+      this.broadcastCombatEvent("npc-defeated", pet.npcId, npc.npcId, npc.x, npc.y, 0, `${pet.displayName} bit ${npc.displayName}`, "#91f2bd");
+    } else {
+      this.persistNpcIfNeeded(npc, now, true);
+    }
   }
 
   private usePortal(playerId: string, requestedPortalId?: string): void {
@@ -1873,38 +2174,87 @@ export class WulandRoom extends Room<WulandRoomState> {
       return;
     }
 
-    const reaction = randomPetReaction(npc.type);
-    npc.speechText = reaction.speech;
-    npc.speechUntil = now + PET_REACTION_DURATION_MS;
-    npc.moving = false;
-    this.npcNextSpeechAt.set(npc.npcId, now + randomBetween(NPC_SPEECH_MIN_MS, NPC_SPEECH_MAX_MS));
-
-    if (reaction.kind === "run") {
+    if (npc.ownerPlayerId === player.playerId) {
+      npc.ownerPlayerId = "";
+      npc.speechText = npc.type === "cat" ? "Mrrrp!" : "Woof!";
+      npc.speechUntil = now + PET_REACTION_DURATION_MS;
+      npc.moving = false;
+      this.petRetaliations.delete(npc.npcId);
       this.npcTargets.set(npc.npcId, randomNpcTarget(npc));
       this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
+      this.persistNpcIfNeeded(npc, now, true);
+      this.broadcastSpeechBubble({
+        sourceType: "npc",
+        sourceId: npc.npcId,
+        mapId: normalizeMapId(npc.mapId),
+        text: npc.speechText
+      });
+      this.broadcastCombatEvent("notice", player.playerId, npc.npcId, npc.x, npc.y, 0, `${npc.displayName} is roaming freely again.`, "#d0ebff");
+      return;
     }
 
-    if (reaction.kind === "bite") {
-      this.damagePlayer(player, PET_BITE_DAMAGE, npc.npcId, now);
+    if (npc.ownerPlayerId) {
+      this.broadcastCombatEvent("notice", player.playerId, npc.npcId, npc.x, npc.y, 0, `${npc.displayName} already follows someone.`, "#ffd8a8");
+      return;
     }
 
+    const currentPet = this.petForOwner(player.playerId);
+
+    if (currentPet) {
+      this.broadcastCombatEvent("notice", player.playerId, currentPet.npcId, currentPet.x, currentPet.y, 0, `You already recruited ${currentPet.displayName}.`, "#ffd8a8");
+      return;
+    }
+
+    const cakeCount = countCakesInInventory(player);
+
+    if (cakeCount <= 0) {
+      this.broadcastCombatEvent("notice", player.playerId, npc.npcId, npc.x, npc.y, 0, `${npc.displayName} wants cake first.`, "#ffd8a8");
+      return;
+    }
+
+    removeAllCakesFromInventory(player);
+    this.persistPlayer(player);
+
+    const chance = petRecruitChance(cakeCount);
+    const success = Math.random() < chance;
+
+    if (success) {
+      npc.ownerPlayerId = player.playerId;
+      npc.mapId = normalizeMapId(player.mapId);
+      const followPosition = petFollowPosition(player);
+      npc.x = followPosition.x;
+      npc.y = followPosition.y;
+      npc.hp = npc.maxHp > 0 ? npc.maxHp : AMBIENT_NPC_MAX_HP;
+      npc.defeated = false;
+      npc.respawnAt = 0;
+      npc.speechText = npc.type === "cat" ? "Purr!" : "Woof!";
+      npc.speechUntil = now + PET_REACTION_DURATION_MS;
+      npc.moving = false;
+      this.npcTargets.delete(npc.npcId);
+      this.persistNpcIfNeeded(npc, now, true);
+      this.broadcastSpeechBubble({
+        sourceType: "npc",
+        sourceId: npc.npcId,
+        mapId: normalizeMapId(npc.mapId),
+        text: npc.speechText
+      });
+      this.broadcastCombatEvent("notice", player.playerId, npc.npcId, npc.x, npc.y, 0, `${npc.displayName} joins you! (${formatChance(chance)} chance)`, "#d8f5a2");
+      return;
+    }
+
+    npc.speechText = npc.type === "cat" ? "Not today." : "Maybe later.";
+    npc.speechUntil = now + PET_REACTION_DURATION_MS;
+    npc.moving = false;
+    this.npcTargets.set(npc.npcId, randomNpcTarget(npc));
+    this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
     this.persistNpcIfNeeded(npc, now, true);
     this.broadcastSpeechBubble({
       sourceType: "npc",
       sourceId: npc.npcId,
       mapId: normalizeMapId(npc.mapId),
-      text: reaction.speech
+      text: npc.speechText
     });
-    this.broadcastCombatEvent(
-      "notice",
-      player.playerId,
-      npc.npcId,
-      npc.x,
-      npc.y,
-      0,
-      reaction.notice.replace("{name}", npc.displayName),
-      reaction.color
-    );
+    this.broadcastCombatEvent("notice", player.playerId, npc.npcId, npc.x, npc.y, 0, `${npc.displayName} ate ${cakeCount} cake${cakeCount === 1 ? "" : "s"} but stayed independent. (${formatChance(chance)} chance)`, "#ffd8a8");
   }
 
   private handleChat(playerId: string, rawText: string): void {
@@ -1986,6 +2336,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     const target = this.state.players.get(request.playerId);
 
     if (!target) {
+      this.releasePetsForOwner(request.playerId, Date.now());
       this.playerStore.markPlayerDeleted(request.playerId, { immediate: true });
       this.broadcastCombatEvent("notice", requester.playerId, requester.playerId, requester.x, requester.y, 0, "Player record deleted", "#ff8787");
       return;
@@ -2014,6 +2365,7 @@ export class WulandRoom extends Room<WulandRoomState> {
     this.lastBasicAttack.delete(target.playerId);
     this.lastChatAt.delete(target.playerId);
     this.lastPersistedPosition.delete(target.playerId);
+    this.releasePetsForOwner(target.playerId, Date.now());
     this.playerStore.markPlayerDeleted(target.playerId, { immediate: true });
     this.updateCounts();
     this.broadcastMapEvent("delete", requester.playerId, target.playerId, targetMapId, targetX, targetY, `${targetName} deleted`, "#ff8787");
@@ -2378,6 +2730,7 @@ const npcFromDefinition = (
   npc.npcId = definition.npcId;
   npc.type = definition.type;
   npc.displayName = definition.displayName;
+  npc.ownerPlayerId = isPetNpcType(definition.type) ? record?.ownerPlayerId ?? "" : "";
   npc.mapId = mapId;
   npc.x = position.x;
   npc.y = position.y;
@@ -2399,6 +2752,7 @@ const recordFromNpc = (npc: WulandNpcSchema): AmbientNpcNetworkState => ({
   npcId: npc.npcId,
   type: npc.type as AmbientNpcType,
   displayName: npc.displayName,
+  ownerPlayerId: npc.ownerPlayerId,
   mapId: normalizeMapId(npc.mapId),
   x: npc.x,
   y: npc.y,
@@ -2482,8 +2836,56 @@ const randomNpcTarget = (npc: WulandNpcSchema): NpcTravelTarget => {
 
 const isRestingPet = (npc: WulandNpcSchema): boolean =>
   isPetNpcType(npc.type) &&
+  !npc.ownerPlayerId &&
   ["Zzz", "Purr.", "Soft snore.", "Dreams about snacks."].includes(npc.speechText) &&
   npc.speechUntil > Date.now();
+
+const countCakesInInventory = (player: WulandPlayerSchema): number => {
+  let total = 0;
+
+  player.inventory.forEach((slot) => {
+    if (isCakeItemDefinitionId(slot.itemDefinitionId)) {
+      total += Math.max(0, Math.floor(slot.quantity));
+    }
+  });
+
+  return total;
+};
+
+const removeAllCakesFromInventory = (player: WulandPlayerSchema): void => {
+  player.inventory.forEach((slot) => {
+    if (isCakeItemDefinitionId(slot.itemDefinitionId)) {
+      clearSlot(slot);
+    }
+  });
+};
+
+const petRecruitChance = (cakeCount: number): number => {
+  if (cakeCount <= 0) {
+    return 0;
+  }
+
+  const effectiveCakes = Math.min(PET_RECRUIT_MAX_CAKES, Math.max(1, Math.floor(cakeCount)));
+  const progress = (effectiveCakes - 1) / (PET_RECRUIT_MAX_CAKES - 1);
+  return Math.min(
+    PET_RECRUIT_MAX_CHANCE,
+    PET_RECRUIT_ONE_CAKE_CHANCE + progress * (PET_RECRUIT_MAX_CHANCE - PET_RECRUIT_ONE_CAKE_CHANCE)
+  );
+};
+
+const formatChance = (chance: number): string =>
+  `${Math.round(chance * 100)}%`;
+
+const petFollowPosition = (owner: WulandPlayerSchema): WorldPosition => {
+  const offset = vectorForDirection(owner.direction);
+  return clampMapPosition({
+    x: owner.x - offset.x * 42,
+    y: owner.y - offset.y * 42
+  }, normalizeMapId(owner.mapId));
+};
+
+const petBiteDamage = (targetMaxHp: number): number =>
+  Math.max(1, Math.round(Math.max(1, targetMaxHp) * PET_DAMAGE_RATIO));
 
 const nearestPetNpc = (
   player: WulandPlayerSchema,
@@ -2511,30 +2913,6 @@ const nearestPetNpc = (
   });
 
   return best;
-};
-
-type PetReaction = {
-  kind: "happy" | "run" | "bite";
-  speech: string;
-  notice: string;
-  color: string;
-};
-
-const randomPetReaction = (type: AmbientNpcType): PetReaction => {
-  const catReactions: readonly PetReaction[] = [
-    { kind: "happy", speech: "Purr.", notice: "{name} purrs happily.", color: "#fff3bf" },
-    { kind: "happy", speech: "Meow!", notice: "{name} accepts the pet.", color: "#fff3bf" },
-    { kind: "run", speech: "Mrrrp!", notice: "{name} darts away.", color: "#d0ebff" },
-    { kind: "bite", speech: "Nibble!", notice: "{name} gives a tiny warning bite.", color: "#ffd8a8" }
-  ];
-  const dogReactions: readonly PetReaction[] = [
-    { kind: "happy", speech: "Woof!", notice: "{name} wags wildly.", color: "#fff3bf" },
-    { kind: "happy", speech: "Lick!", notice: "{name} licks your hand.", color: "#d8f5a2" },
-    { kind: "run", speech: "Zoom!", notice: "{name} runs a victory lap.", color: "#d0ebff" },
-    { kind: "bite", speech: "Nip!", notice: "{name} gives a tiny playful nip.", color: "#ffd8a8" }
-  ];
-
-  return randomChoice(type === "cat" ? catReactions : dogReactions);
 };
 
 const canFight = (player: WulandPlayerSchema): boolean =>

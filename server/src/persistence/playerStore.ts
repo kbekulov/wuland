@@ -602,6 +602,7 @@ const cloneNpcState = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => {
 
   return {
     ...npc,
+    ownerPlayerId: typeof npc.ownerPlayerId === "string" ? npc.ownerPlayerId : "",
     mapId,
     x: position.x,
     y: position.y,

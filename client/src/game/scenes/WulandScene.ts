@@ -180,6 +180,7 @@ export interface WulandConnectionState {
   nearbyGiftPlayerName: string;
   nearbyPetNpcId: string;
   nearbyPetName: string;
+  nearbyPetAction: "" | "recruit" | "release" | "owned";
   currentMapId: WulandMapId;
   currentMapName: string;
   totalDroppedItems: number;
@@ -243,6 +244,7 @@ export class WulandScene extends Phaser.Scene {
     nearbyGiftPlayerName: "",
     nearbyPetNpcId: "",
     nearbyPetName: "",
+    nearbyPetAction: "",
     currentMapId: WULAND_MAP_ID,
     currentMapName: getMapDisplayName(WULAND_MAP_ID),
     totalDroppedItems: 0,
@@ -344,6 +346,7 @@ export class WulandScene extends Phaser.Scene {
       nearbyGiftPlayerName: "",
       nearbyPetNpcId: "",
       nearbyPetName: "",
+      nearbyPetAction: "",
       currentMapId: this.currentMapId,
       currentMapName: getMapDisplayName(this.currentMapId),
       totalDroppedItems: 0,
@@ -1379,8 +1382,9 @@ export class WulandScene extends Phaser.Scene {
 
     if (petButton) {
       petButton.disabled = !this.connectionState.nearbyPetNpcId;
+      setMobileButtonLabel(petButton, mobilePetActionLabel(this.connectionState.nearbyPetAction));
       petButton.title = this.connectionState.nearbyPetName
-        ? `Pet ${this.connectionState.nearbyPetName}`
+        ? `${petActionTitle(this.connectionState.nearbyPetAction)} ${this.connectionState.nearbyPetName}`
         : "Stand near a cat or dog";
     }
 
@@ -1741,7 +1745,12 @@ export class WulandScene extends Phaser.Scene {
 
     if (npc) {
       this.selectCombatTarget("npc", npc.npcId);
-      this.showFloatingText(npc.x, npc.y, "target", "#fff3bf");
+      this.showFloatingText(
+        npc.x,
+        npc.y,
+        isPetNpcType(npc.type) ? petActionTitle(petActionForNpc(npc, this.profile.playerId)) : "target",
+        "#fff3bf"
+      );
       return;
     }
 
@@ -2389,14 +2398,20 @@ export class WulandScene extends Phaser.Scene {
     avatar.lastState = npc;
     const hpPercent = npc.maxHp > 0 ? Phaser.Math.Clamp(npc.hp / npc.maxHp, 0, 1) : 0;
     const petSleeping = isPet && npc.speechText === "Zzz" && npc.speechUntil > Date.now();
+    const owner = npc.ownerPlayerId ? this.latestPlayers.get(npc.ownerPlayerId) : undefined;
+    const ownedPetStatus = owner
+      ? npc.ownerPlayerId === this.profile.playerId
+        ? "your pet"
+        : `${owner.name}'s pet`
+      : "";
     avatar.nameLabel.setText(npc.displayName);
     avatar.propLabel.setText(npcPropLabel(npc.type)).setVisible(!isPet);
     avatar.hpFill
       .setFillStyle(npc.defeated ? 0xff6b6b : hpPercent < 0.35 ? 0xffd43b : 0x69db7c)
       .setDisplaySize(60 * hpPercent, 6);
     avatar.statusLabel
-      .setText(npc.defeated ? "respawning" : petSleeping ? "sleeping" : "")
-      .setVisible(npc.defeated || petSleeping);
+      .setText(npc.defeated ? "respawning" : petSleeping ? "sleeping" : ownedPetStatus)
+      .setVisible(npc.defeated || petSleeping || Boolean(ownedPetStatus));
     avatar.hpBg.setVisible(!npc.defeated);
     avatar.hpFill.setVisible(!npc.defeated);
     avatar.selectionRing.setVisible(npc.npcId === this.selectedNpcId && !npc.defeated && npc.hp > 0);
@@ -2524,6 +2539,7 @@ export class WulandScene extends Phaser.Scene {
     const petTarget = nearestPetNpcClient(player, this.latestNpcs, 76);
     const nearbyPetNpcId = petTarget?.npcId ?? "";
     const nearbyPetName = petTarget?.displayName ?? "";
+    const nearbyPetAction = petTarget ? petActionForNpc(petTarget, player.playerId) : "";
 
     if (
       nearbyPickupName !== this.connectionState.nearbyPickupName ||
@@ -2532,7 +2548,8 @@ export class WulandScene extends Phaser.Scene {
       nearMerchant !== this.connectionState.nearMerchant ||
       nearbyGiftPlayerName !== this.connectionState.nearbyGiftPlayerName ||
       nearbyPetNpcId !== this.connectionState.nearbyPetNpcId ||
-      nearbyPetName !== this.connectionState.nearbyPetName
+      nearbyPetName !== this.connectionState.nearbyPetName ||
+      nearbyPetAction !== this.connectionState.nearbyPetAction
     ) {
       this.setConnectionState({
         nearbyPickupName,
@@ -2541,7 +2558,8 @@ export class WulandScene extends Phaser.Scene {
         nearMerchant,
         nearbyGiftPlayerName,
         nearbyPetNpcId,
-        nearbyPetName
+        nearbyPetName,
+        nearbyPetAction
       });
     }
   }
@@ -3682,6 +3700,7 @@ const snapshotNpc = (npc: AmbientNpcNetworkState): AmbientNpcNetworkState => ({
   npcId: npc.npcId,
   type: npc.type,
   displayName: npc.displayName,
+  ownerPlayerId: npc.ownerPlayerId ?? "",
   mapId: npc.mapId ?? WULAND_MAP_ID,
   x: npc.x,
   y: npc.y,
@@ -4155,6 +4174,45 @@ const petAnimationSeed = (npcId: string): number => {
 
 const npcPropLabel = (type: AmbientNpcNetworkState["type"]): string =>
   NPC_PROP_LABELS[type] ?? "NPC";
+
+const petActionForNpc = (
+  npc: AmbientNpcNetworkState,
+  localPlayerId: string
+): WulandConnectionState["nearbyPetAction"] => {
+  if (npc.ownerPlayerId === localPlayerId) {
+    return "release";
+  }
+
+  if (npc.ownerPlayerId) {
+    return "owned";
+  }
+
+  return "recruit";
+};
+
+const mobilePetActionLabel = (action: WulandConnectionState["nearbyPetAction"]): string => {
+  if (action === "release") {
+    return "Un-recruit";
+  }
+
+  if (action === "owned") {
+    return "Owned";
+  }
+
+  return "Recruit";
+};
+
+const petActionTitle = (action: WulandConnectionState["nearbyPetAction"]): string => {
+  if (action === "release") {
+    return "Un-recruit pet";
+  }
+
+  if (action === "owned") {
+    return "Already recruited";
+  }
+
+  return "Recruit pet";
+};
 
 const setMobileButtonLabel = (button: HTMLButtonElement, label: string): void => {
   const labelElement = button.querySelector<HTMLElement>(".mobile-control-label");

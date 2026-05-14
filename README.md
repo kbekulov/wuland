@@ -115,7 +115,7 @@ Players, sleeping players, enemies, dropped items, and prompts are filtered by m
 - `1` through `9`: select a hotbar slot.
 - `Space`: attack with the selected weapon.
 - `E`: use the selected consumable.
-- `F`: use a nearby door, pet a nearby cat or dog, pick up a nearby dropped item, or open the merchant shop when near the merchant.
+- `F`: use a nearby door, recruit/un-recruit a nearby cat or dog, pick up a nearby dropped item, or open the merchant shop when near the merchant.
 - `G`: gift the selected cake to a nearby online player.
 - Click or tap an enemy, NPC, or another player: select it as your weapon target.
 - Drag a hotbar item to another slot to swap. Drag it outside the hotbar to drop one item from that slot onto the map.
@@ -188,7 +188,7 @@ Ambient NPCs are rendered as simple human-shaped characters with distinct outfit
 - HR Specialist in BusyBeet and Din Break.
 - Intern in WULAND.
 
-WULAND also has ambient cats and dogs. They wander, run between rooms, nap, meow, purr, bark, and react to players. Stand near a cat or dog and use `F` on desktop or `Act > Pet` on touch devices. Pet reactions include happy purrs/wags, running away, licking, or a tiny bite.
+WULAND also has ambient cats and dogs. They wander, run between rooms, nap, meow, purr, bark, and can become companions. Stand near a cat or dog and use `F` on desktop or `Act > Recruit` on touch devices. Recruiting consumes all cakes in your hotbar: 1 cake gives a tiny 2% chance, 10 or more cakes gives the capped 90% chance, and values in between scale upward. You can only have one recruited pet at a time. Click your own pet and choose `Un-recruit pet` to let it roam freely again. Recruited pets follow their owner and make a few small retaliatory bites against players, NPCs, enemies, or zombies that damage the owner.
 
 The chat window is visible during gameplay and can be minimized. Chat is global in the chat window, with off-map messages labeled by map name. Speech bubbles only appear above players, NPCs, and the merchant in the same map. They stay anchored to the speaker while the speaker moves, then fade out. Messages are trimmed, capped at 140 characters, and rate-limited to about one message per second.
 
@@ -318,3 +318,5 @@ Phase 11 adds CC0 item icons, icon-based hotbar/shop/drop visuals, simple held-i
 The current gameplay patch lets NPCs explore all maps, allows attacks against NPCs and other players including sleeping players, respawns defeated NPCs/players at random walkable map locations, and drops only one item from stacked inventory slots.
 
 The current mobile polish patch makes WULAND phone-first by using a gacha-style draggable joystick, portrait chat-at-top/right-hotbar layout, compact circular icon action buttons, a settings/status screen, cached hotbar icons to prevent mobile flicker, a reference-style landscape layout, and a centered ACT radial menu.
+
+The current pet patch lets cats and dogs be recruited with cakes, enforces one active pet per player, adds un-recruiting from the pet action, and makes recruited pets follow and retaliate when their owner is attacked.

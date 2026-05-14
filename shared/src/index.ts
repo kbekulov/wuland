@@ -97,7 +97,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 22;
+export const WULAND_PROTOCOL_VERSION = 23;
 export const FLASHLIGHT_ITEM_ID = "flashlight";
 export const FLASHLIGHT_MAX_CHARGE_MS = 60_000;
 export const LIGHT_STICK_ITEM_ID = "light-stick";
@@ -1288,6 +1288,7 @@ export interface AmbientNpcNetworkState {
   npcId: string;
   type: AmbientNpcType;
   displayName: string;
+  ownerPlayerId?: string;
   mapId: WulandMapId;
   x: number;
   y: number;
@@ -1984,6 +1985,7 @@ export const isAmbientNpcNetworkState = (value: unknown): value is AmbientNpcNet
   isNonEmptyString(value.npcId) &&
   isAmbientNpcType(value.type) &&
   isNonEmptyString(value.displayName) &&
+  (value.ownerPlayerId === undefined || typeof value.ownerPlayerId === "string") &&
   isMapId(value.mapId) &&
   isValidMapPosition({ x: value.x, y: value.y }, value.mapId) &&
   isFiniteNumber(value.spawnX) &&

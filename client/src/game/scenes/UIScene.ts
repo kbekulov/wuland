@@ -332,6 +332,7 @@ export class UIScene extends Phaser.Scene {
     this.root.dataset.chatCollapsed = String(this.chatCollapsed);
     this.root.dataset.godModeActive = String(this.connection.godModeActive);
     this.root.dataset.touchLayout = String(prefersTouchLayout());
+    document.body.dataset.wulandSettingsOpen = String(this.helpOpen);
     this.setGodModeButton();
     this.setClearChatButton();
     this.setChatButton();
@@ -862,6 +863,7 @@ export class UIScene extends Phaser.Scene {
     window.removeEventListener("pointermove", this.handleHotbarPointerMove);
     window.removeEventListener("pointerup", this.handleHotbarPointerUp);
     window.removeEventListener("keydown", this.handleWindowKeydown, true);
+    delete document.body.dataset.wulandSettingsOpen;
     this.root?.remove();
     this.root = undefined;
   }

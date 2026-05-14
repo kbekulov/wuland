@@ -927,13 +927,18 @@ label span,
 }
 
 .hotbar-count {
-  left: 4px;
+  left: 6px;
   right: auto;
-  bottom: 4px;
-  min-width: 17px;
-  height: 17px;
-  background: #fff3bf;
-  color: #172224;
+  bottom: 2px;
+  min-width: 0;
+  height: auto;
+  background: transparent;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    1px 0 2px rgba(0, 0, 0, 0.72);
   z-index: 2;
 }
 
@@ -1270,6 +1275,11 @@ label span,
 
 body[data-touch-controls] .mobile-controls {
   display: flex;
+}
+
+body[data-wuland-settings-open="true"] .mobile-controls,
+body[data-wuland-settings-open="true"] .hotbar-panel {
+  display: none !important;
 }
 
 .mobile-joystick,

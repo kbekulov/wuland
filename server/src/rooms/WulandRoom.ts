@@ -675,6 +675,7 @@ export class WulandRoom extends Room<WulandRoomState> {
           player.shield = 0;
           player.defeated = false;
           player.respawnAt = 0;
+          this.respawnOwnedPetBesidePlayer(player, now);
           this.persistPlayer(player);
           this.broadcastCombatEvent("respawn", player.playerId, player.playerId, player.x, player.y, 0, "respawn", "#91f2bd");
         }
@@ -1022,7 +1023,7 @@ export class WulandRoom extends Room<WulandRoomState> {
 
     const owner = this.state.players.get(npc.ownerPlayerId);
 
-    if (!owner || !owner.online || owner.sleeping) {
+    if (!owner || !owner.online || owner.sleeping || owner.defeated) {
       npc.moving = false;
       this.petRetaliations.delete(npc.npcId);
       this.persistNpcIfNeeded(npc, now);
@@ -1701,6 +1702,29 @@ export class WulandRoom extends Room<WulandRoomState> {
       this.npcLastSavedAt.set(`${npc.npcId}:target`, now);
       this.persistNpcIfNeeded(npc, now, true);
     });
+  }
+
+  private respawnOwnedPetBesidePlayer(owner: WulandPlayerSchema, now: number): void {
+    const pet = this.petForOwner(owner.playerId);
+
+    if (!pet) {
+      return;
+    }
+
+    const position = petFollowPosition(owner);
+    pet.mapId = normalizeMapId(owner.mapId);
+    pet.x = position.x;
+    pet.y = position.y;
+    pet.hp = pet.maxHp > 0 ? pet.maxHp : AMBIENT_NPC_MAX_HP;
+    pet.maxHp = pet.maxHp > 0 ? pet.maxHp : AMBIENT_NPC_MAX_HP;
+    pet.defeated = false;
+    pet.respawnAt = 0;
+    pet.moving = false;
+    pet.speechText = "";
+    pet.speechUntil = 0;
+    this.petRetaliations.delete(pet.npcId);
+    this.npcTargets.delete(pet.npcId);
+    this.persistNpcIfNeeded(pet, now, true);
   }
 
   private resolvePetRetaliationTarget(

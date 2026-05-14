@@ -97,7 +97,7 @@ export const CLASS_METADATA: Record<PlayerClass, ClassMetadata> = {
   }
 };
 
-export const WULAND_PROTOCOL_VERSION = 23;
+export const WULAND_PROTOCOL_VERSION = 24;
 export const FLASHLIGHT_ITEM_ID = "flashlight";
 export const FLASHLIGHT_MAX_CHARGE_MS = 60_000;
 export const LIGHT_STICK_ITEM_ID = "light-stick";

@@ -199,6 +199,7 @@ const ZERO_INPUT: MovementInput = {
 };
 
 const INPUT_RESEND_MS = 175;
+const PET_INTERACTION_RANGE = 76;
 
 export class WulandScene extends Phaser.Scene {
   private profile!: PlayerProfile;
@@ -210,6 +211,7 @@ export class WulandScene extends Phaser.Scene {
   private debugKey?: Phaser.Input.Keyboard.Key;
   private room?: WulandClientRoom;
   private mobileRoot?: HTMLDivElement;
+  private petConfirmRoot?: HTMLDivElement;
   private worldObjects: Phaser.GameObjects.GameObject[] = [];
   private avatars = new Map<string, PlayerAvatar>();
   private enemyAvatars = new Map<string, EnemyAvatar>();
@@ -259,6 +261,7 @@ export class WulandScene extends Phaser.Scene {
   private selectedEnemyId = "";
   private selectedNpcId = "";
   private selectedPlayerId = "";
+  private pendingPetActionNpcId = "";
   private virtualInput: MovementInput = { ...ZERO_INPUT };
   private joystickPointerId: number | null = null;
   private clickTarget?: Phaser.Math.Vector2;
@@ -312,6 +315,7 @@ export class WulandScene extends Phaser.Scene {
     this.selectedEnemyId = "";
     this.selectedNpcId = "";
     this.selectedPlayerId = "";
+    this.pendingPetActionNpcId = "";
     this.godModeActive = false;
     this.godModeCode = "";
     this.virtualInput = { ...ZERO_INPUT };
@@ -1326,7 +1330,7 @@ export class WulandScene extends Phaser.Scene {
     if (primaryButton) {
       setMobileButtonLabel(primaryButton, primary.label);
       primaryButton.title = primary.title;
-      primaryButton.dataset.primaryAction = primary.kind;
+      primaryButton.dataset.primaryAction = primary.kind === "pet" ? "interact" : primary.kind;
     }
 
     if (actButton) {
@@ -1381,7 +1385,9 @@ export class WulandScene extends Phaser.Scene {
     }
 
     if (petButton) {
-      petButton.disabled = !this.connectionState.nearbyPetNpcId;
+      petButton.disabled =
+        !this.connectionState.nearbyPetNpcId ||
+        this.connectionState.nearbyPetAction === "owned";
       setMobileButtonLabel(petButton, mobilePetActionLabel(this.connectionState.nearbyPetAction));
       petButton.title = this.connectionState.nearbyPetName
         ? `${petActionTitle(this.connectionState.nearbyPetAction)} ${this.connectionState.nearbyPetName}`
@@ -1413,6 +1419,11 @@ export class WulandScene extends Phaser.Scene {
       return;
     }
 
+    if (primary.kind === "pet") {
+      this.petNearbyAnimal();
+      return;
+    }
+
     if (primary.kind === "use") {
       this.useSelectedItem();
       return;
@@ -1423,7 +1434,7 @@ export class WulandScene extends Phaser.Scene {
 
   private mobilePrimaryAction(
     selectedDefinition: (typeof ITEM_DEFINITIONS)[ItemDefinitionId] | null
-  ): { kind: "attack" | "interact" | "use"; label: string; title: string } {
+  ): { kind: "attack" | "interact" | "use" | "pet"; label: string; title: string } {
     if (this.connectionState.nearMerchant) {
       return { kind: "interact", label: "Shop", title: "Open the merchant shop" };
     }
@@ -1434,6 +1445,19 @@ export class WulandScene extends Phaser.Scene {
 
     if (this.connectionState.nearbyPickupName) {
       return { kind: "interact", label: "Pick", title: `Pick up ${this.connectionState.nearbyPickupName}` };
+    }
+
+    if (
+      this.connectionState.nearbyPetNpcId &&
+      this.connectionState.nearbyPetAction !== "owned"
+    ) {
+      return {
+        kind: "pet",
+        label: mobilePetActionLabel(this.connectionState.nearbyPetAction),
+        title: this.connectionState.nearbyPetName
+          ? `${petActionTitle(this.connectionState.nearbyPetAction)} ${this.connectionState.nearbyPetName}`
+          : "Recruit or un-recruit a nearby pet"
+      };
     }
 
     if (selectedDefinition?.itemType === "consumable") {
@@ -1608,14 +1632,96 @@ export class WulandScene extends Phaser.Scene {
     this.room?.send("giftSelectedItem", {});
   }
 
-  private petNearbyAnimal(): void {
+  private petNearbyAnimal(npcId = this.connectionState.nearbyPetNpcId): void {
     if (!this.canSendGameplayAction("pet animal")) {
       return;
     }
 
-    this.room?.send("petNpc", {
-      npcId: this.connectionState.nearbyPetNpcId || undefined
+    void this.confirmAndSendPetAction(npcId);
+  }
+
+  private async confirmAndSendPetAction(npcId: string): Promise<void> {
+    const npc = this.latestNpcs.get(npcId);
+
+    if (!npc || !isPetNpcType(npc.type)) {
+      this.showFloatingText(
+        this.cameras.main.midPoint.x,
+        this.cameras.main.midPoint.y,
+        "No pet nearby",
+        "#ffd8a8"
+      );
+      return;
+    }
+
+    const action = petActionForNpc(npc, this.profile.playerId);
+
+    if (action === "owned") {
+      this.showFloatingText(npc.x, npc.y, `${npc.displayName} already follows someone`, "#ffd8a8");
+      return;
+    }
+
+    const question = action === "release"
+      ? `Do you want to un-recruit ${npc.displayName}?`
+      : `Do you want to recruit ${npc.displayName} as a pet?`;
+    const detail = action === "release"
+      ? `${npc.displayName} will stop following you and roam WULAND again.`
+      : "Recruitment offers all cakes in your hotbar. More cakes means a better chance, up to 90%.";
+    const confirmed = await this.showPetConfirmation(question, detail);
+
+    if (!confirmed || !this.room) {
+      return;
+    }
+
+    this.room.send("petNpc", { npcId });
+  }
+
+  private showPetConfirmation(question: string, detail: string): Promise<boolean> {
+    this.destroyPetConfirmation();
+    return new Promise((resolve) => {
+      const uiRoot = document.getElementById("ui-root") ?? document.body;
+      const root = document.createElement("div");
+      root.className = "pet-confirm-overlay";
+      root.innerHTML = `
+        <div class="pet-confirm-dialog" role="dialog" aria-modal="true" aria-label="Pet confirmation">
+          <p class="pet-confirm-question"></p>
+          <p class="pet-confirm-detail"></p>
+          <div class="pet-confirm-actions">
+            <button type="button" class="secondary" data-pet-confirm="no">No</button>
+            <button type="button" class="primary" data-pet-confirm="yes">Yes</button>
+          </div>
+        </div>
+      `;
+      root.querySelector<HTMLElement>(".pet-confirm-question")!.textContent = question;
+      root.querySelector<HTMLElement>(".pet-confirm-detail")!.textContent = detail;
+      uiRoot.appendChild(root);
+      this.petConfirmRoot = root;
+
+      let handleKeyDown: (event: KeyboardEvent) => void = () => undefined;
+      const finish = (value: boolean): void => {
+        document.removeEventListener("keydown", handleKeyDown);
+        this.destroyPetConfirmation();
+        resolve(value);
+      };
+      handleKeyDown = (event: KeyboardEvent): void => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          finish(false);
+        }
+      };
+
+      root.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+      root.querySelector<HTMLButtonElement>('[data-pet-confirm="no"]')?.addEventListener("click", () => finish(false));
+      root.querySelector<HTMLButtonElement>('[data-pet-confirm="yes"]')?.addEventListener("click", () => finish(true));
+      document.addEventListener("keydown", handleKeyDown);
+      root.querySelector<HTMLButtonElement>('[data-pet-confirm="yes"]')?.focus();
     });
+  }
+
+  private destroyPetConfirmation(): void {
+    this.petConfirmRoot?.remove();
+    this.petConfirmRoot = undefined;
   }
 
   private buyMerchantItem(itemDefinitionId: ItemDefinitionId): void {
@@ -1736,6 +1842,7 @@ export class WulandScene extends Phaser.Scene {
     const enemy = this.enemyAtWorldPoint(worldPoint.x, worldPoint.y);
 
     if (enemy) {
+      this.pendingPetActionNpcId = "";
       this.selectCombatTarget("enemy", enemy.enemyId);
       this.showFloatingText(enemy.x, enemy.y, "target", "#fff3bf");
       return;
@@ -1745,6 +1852,19 @@ export class WulandScene extends Phaser.Scene {
 
     if (npc) {
       this.selectCombatTarget("npc", npc.npcId);
+
+      if (isPetNpcType(npc.type)) {
+        const localPlayer = this.latestPlayers.get(this.profile.playerId);
+
+        if (localPlayer && distanceBetween(localPlayer, npc) <= PET_INTERACTION_RANGE) {
+          this.pendingPetActionNpcId = "";
+          this.petNearbyAnimal(npc.npcId);
+        } else {
+          this.pendingPetActionNpcId = npc.npcId;
+          this.setClickTarget(npc.x, npc.y);
+        }
+      }
+
       this.showFloatingText(
         npc.x,
         npc.y,
@@ -1757,11 +1877,13 @@ export class WulandScene extends Phaser.Scene {
     const player = this.playerAtWorldPoint(worldPoint.x, worldPoint.y);
 
     if (player && player.playerId !== this.profile.playerId) {
+      this.pendingPetActionNpcId = "";
       this.selectCombatTarget("player", player.playerId);
       this.showFloatingText(player.x, player.y, "target", "#fff3bf");
       return;
     }
 
+    this.pendingPetActionNpcId = "";
     this.selectCombatTarget();
     this.setClickTarget(worldPoint.x, worldPoint.y);
   }
@@ -2536,7 +2658,7 @@ export class WulandScene extends Phaser.Scene {
       ? nearestGiftPlayerClient(player, this.latestPlayers, 78)
       : null;
     const nearbyGiftPlayerName = giftTarget?.name ?? "";
-    const petTarget = nearestPetNpcClient(player, this.latestNpcs, 76);
+    const petTarget = nearestPetNpcClient(player, this.latestNpcs, PET_INTERACTION_RANGE);
     const nearbyPetNpcId = petTarget?.npcId ?? "";
     const nearbyPetName = petTarget?.displayName ?? "";
     const nearbyPetAction = petTarget ? petActionForNpc(petTarget, player.playerId) : "";
@@ -2561,6 +2683,17 @@ export class WulandScene extends Phaser.Scene {
         nearbyPetName,
         nearbyPetAction
       });
+    }
+
+    if (
+      this.pendingPetActionNpcId &&
+      nearbyPetNpcId === this.pendingPetActionNpcId
+    ) {
+      const pendingNpcId = this.pendingPetActionNpcId;
+      this.pendingPetActionNpcId = "";
+      if (nearbyPetAction !== "owned") {
+        this.petNearbyAnimal(pendingNpcId);
+      }
     }
   }
 
@@ -3546,6 +3679,7 @@ export class WulandScene extends Phaser.Scene {
     window.removeEventListener("resize", this.handleViewportControlsChange);
     window.removeEventListener("orientationchange", this.handleViewportControlsChange);
     this.input.off("pointerdown", this.handlePointerDown, this);
+    this.destroyPetConfirmation();
     this.mobileRoot?.remove();
     this.mobileRoot = undefined;
     document.body.removeAttribute("data-touch-controls");
@@ -4416,6 +4550,10 @@ const shouldUseTouchControls = (): boolean =>
   window.innerWidth <= 860;
 
 const isGameplayInputBlocked = (): boolean => {
+  if (document.querySelector(".pet-confirm-overlay")) {
+    return true;
+  }
+
   const active = document.activeElement;
 
   if (!(active instanceof HTMLElement)) {

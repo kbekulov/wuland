@@ -1077,6 +1077,55 @@ label span,
   display: grid;
 }
 
+.pet-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(6, 14, 15, 0.52);
+  pointer-events: auto;
+}
+
+.pet-confirm-dialog {
+  width: min(390px, calc(100vw - 36px));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(14, 29, 30, 0.97);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.38);
+  color: #fff8e7;
+  padding: 18px;
+}
+
+.pet-confirm-question {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+.pet-confirm-detail {
+  margin: 10px 0 0;
+  color: #d8e6df;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.pet-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.pet-confirm-actions button {
+  min-height: 52px;
+  border-radius: 9px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
 .help-overlay > div,
 .merchant-shop > div {
   width: min(430px, calc(100vw - 32px));

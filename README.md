@@ -188,7 +188,7 @@ Ambient NPCs are rendered as simple human-shaped characters with distinct outfit
 - HR Specialist in BusyBeet and Din Break.
 - Intern in WULAND.
 
-WULAND also has ambient cats and dogs. They wander, run between rooms, nap, meow, purr, bark, and can become companions. Stand near a cat or dog and use `F` on desktop or `Act > Recruit` on touch devices. Recruiting consumes all cakes in your hotbar: 1 cake gives a tiny 2% chance, 10 or more cakes gives the capped 90% chance, and values in between scale upward. You can only have one recruited pet at a time. Click your own pet and choose `Un-recruit pet` to let it roam freely again. Recruited pets follow their owner and make a few small retaliatory bites against players, NPCs, enemies, or zombies that damage the owner.
+WULAND also has ambient cats and dogs. They wander, run between rooms, nap, meow, purr, bark, and can become companions. Stand near a cat or dog and use `F` on desktop, tap the pet directly, or use the primary touch button when it changes to `Recruit`. Recruiting always asks for Yes/No confirmation and consumes all cakes in your hotbar: 1 cake gives a tiny 2% chance, 10 or more cakes gives the capped 90% chance, and values in between scale upward. You can only have one recruited pet at a time. Click your own pet and choose `Un-recruit pet` to let it roam freely again. Recruited pets heal to full on successful recruitment, follow their owner, respawn beside the owner after the owner respawns, and make a few small retaliatory bites against players, NPCs, enemies, or zombies that damage the owner.
 
 The chat window is visible during gameplay and can be minimized. Chat is global in the chat window, with off-map messages labeled by map name. Speech bubbles only appear above players, NPCs, and the merchant in the same map. They stay anchored to the speaker while the speaker moves, then fade out. Messages are trimmed, capped at 140 characters, and rate-limited to about one message per second.
 
@@ -319,4 +319,4 @@ The current gameplay patch lets NPCs explore all maps, allows attacks against NP
 
 The current mobile polish patch makes WULAND phone-first by using a gacha-style draggable joystick, portrait chat-at-top/right-hotbar layout, compact circular icon action buttons, a settings/status screen, cached hotbar icons to prevent mobile flicker, a reference-style landscape layout, and a centered ACT radial menu.
 
-The current pet patch lets cats and dogs be recruited with cakes, enforces one active pet per player, adds un-recruiting from the pet action, and makes recruited pets follow and retaliate when their owner is attacked.
+The current pet patch lets cats and dogs be recruited with cakes from the primary action button or direct pet taps, enforces one active pet per player, adds Yes/No confirmation and un-recruiting, and makes recruited pets follow, recover, respawn beside their owner, and retaliate when their owner is attacked.

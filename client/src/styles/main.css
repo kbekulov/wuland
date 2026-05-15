@@ -1327,7 +1327,9 @@ body[data-touch-controls] .mobile-controls {
 }
 
 body[data-wuland-settings-open="true"] .mobile-controls,
-body[data-wuland-settings-open="true"] .hotbar-panel {
+body[data-wuland-settings-open="true"] .hotbar-panel,
+body[data-wuland-shop-open="true"] .mobile-controls,
+body[data-wuland-shop-open="true"] .hotbar-panel {
   display: none !important;
 }
 
